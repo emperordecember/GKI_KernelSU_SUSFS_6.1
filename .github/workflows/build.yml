@@ -557,39 +557,38 @@ jobs:
       # no-op instead of an actual disable. So explicitly force it off whenever the user
       # asked for it to be off, regardless of which variant is selected.
       #
-      # NOTE on HOW it is forced off: each line is rewritten/appended to
-      # "# CONFIG_X is not set" -- NOT deleted. The ksu.fragment is built
-      # from `diff .orig vs modified` keeping only ADDED lines, so a
-      # deleted CONFIG_ZRAM=m never reaches the fragment; the defconfig is
-      # then restored from .orig (which still has =m) and zram builds as a
-      # module, failing with "kernel modules are built but not copied"
-      # once modules.bzl strips it. An explicit "is not set" line DOES land
-      # in the fragment and overrides the stock =m at merge time
-      # (merge_config: later fragment wins). savedefconfig omits it (Kconfig
-      # default), and match-strategy check compares values only.
+      # NOTE on HOW it is forced off: lines are DELETED, never rewritten to
+      # "# CONFIG_X is not set". `make savedefconfig` (kernel_aarch64_config trim
+      # check) omits any option whose value equals its Kconfig default, so "not set"
+      # lines in defconfig/fragment get dropped by savedefconfig and the build fails
+      # with "savedefconfig does not match gki_defconfig". Deleting the line lets the
+      # option fall back to its default (n for ZRAM and friends) -- which is exactly
+      # what savedefconfig outputs, so the check passes.
       - name: Force-disable ZRAM config when use_zram is off
         if: ${{ !inputs.use_zram }}
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
           echo "use_zram is disabled -- forcing ZRAM config off regardless of what the stock/base defconfig already sets..."
           for CFG in CONFIG_ZRAM CONFIG_ZSMALLOC CONFIG_ZRAM_DEF_COMP_LZ4KD CONFIG_ZRAM_DEF_COMP_LZ4K CONFIG_CRYPTO_LZO CONFIG_ZRAM_BACKEND_LZ4 CONFIG_ZRAM_BACKEND_ZSTD CONFIG_ZRAM_BACKEND_LZO CONFIG_ZRAM_WRITEBACK CONFIG_ZRAM_MULTI_COMP CONFIG_ZRAM_ANDROID_IOCTL; do
-            if grep -q "^# ${CFG} is not set$" "$DEFCONFIG"; then
+            if grep -q "^${CFG}=y$\|^${CFG}=m$" "$DEFCONFIG"; then
+              sed -i "/^${CFG}=y$/d; /^${CFG}=m$/d" "$DEFCONFIG"
+              echo "  Removed $CFG from defconfig"
+            elif grep -q "^# ${CFG} is not set$" "$DEFCONFIG"; then
               echo "  Already disabled: $CFG"
-            elif grep -q "^${CFG}=y$\|^${CFG}=m$" "$DEFCONFIG"; then
-              sed -i "s/^${CFG}=y$/# ${CFG} is not set/; s/^${CFG}=m$/# ${CFG} is not set/" "$DEFCONFIG"
-              echo "  Forced off: $CFG"
             else
-              echo "# ${CFG} is not set" >> "$DEFCONFIG"
-              echo "  Added and disabled: $CFG"
+              echo "  $CFG absent (defaults to off)"
             fi
           done
 
-          # zram.ko/zsmalloc.ko intentionally stay listed in common/modules.bzl
-          # (module_outs). Kleaf only fails on "built but not copied", never on
-          # a listed module that did not build: off -> not built -> fine,
-          # =y -> built-in -> fine, =m -> built + copied -> fine. Stripping
-          # them here is what caused "kernel modules are built but not copied"
-          # on 6.1/6.6 when zram still came back as =m via .orig restore.
+          # Neither zram.ko nor zsmalloc.ko will be built at all now, but bazel's
+          # common/modules.bzl still lists them as expected dist outputs by default
+          # (this is the exact same sed the "Configure ZRAM options" step uses on the
+          # opposite path, when it converts them to CONFIG_*=y built-ins instead).
+          # Without this, bazel fails with "Unable to find drivers/block/zram/zram.ko".
+          if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
+            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' common/modules.bzl
+            echo "  Stripped zram.ko/zsmalloc.ko from common/modules.bzl"
+          fi
 
           # CONFIG_ZSMALLOC is off, so these exports genuinely no longer exist in the
           # ksymtab -- the strict KMI symbol-list check fails otherwise ("Symbols
