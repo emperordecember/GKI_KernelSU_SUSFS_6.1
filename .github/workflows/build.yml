@@ -69,15 +69,11 @@ on:
         type: boolean
         default: false
       nomount_variant:
-        description: "NoMount driver source: hookless (master, stable) or ci (dev, nightly)"
+        description: "NoMount driver source: dev or hookless"
         required: false
         type: string
-        default: "hookless"
+        default: "dev"
       use_bbrv3:
-        required: false
-        type: boolean
-        default: false
-      use_performance:
         required: false
         type: boolean
         default: false
@@ -1080,23 +1076,6 @@ jobs:
           grep -q '^CONFIG_DEFAULT_TCP_CONG=' arch/arm64/configs/gki_defconfig \
             && sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' arch/arm64/configs/gki_defconfig \
             || echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> arch/arm64/configs/gki_defconfig
-          # TCP_CONG_ADVANCED=y exposes BIC/WESTWOOD/HTCP as tristate default m
-          # on old 6.12 branches (2025-06/07/09) which lack the explicit
-          # "# ... is not set" lines newer branches carry in gki_defconfig.
-          # They then get built as .ko and Kleaf fails with "kernel modules
-          # are built but not copied" (not in module_outs). We only want
-          # BBR + BBRv3, so pin them off explicitly.
-          if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
-            for CFG in CONFIG_TCP_CONG_BIC CONFIG_TCP_CONG_WESTWOOD CONFIG_TCP_CONG_HTCP; do
-              if grep -q "^${CFG}=m$" arch/arm64/configs/gki_defconfig; then
-                sed -i "s/^${CFG}=m$/# ${CFG} is not set/" arch/arm64/configs/gki_defconfig
-              elif grep -q "^# ${CFG} is not set$" arch/arm64/configs/gki_defconfig; then
-                :
-              else
-                echo "# ${CFG} is not set" >> arch/arm64/configs/gki_defconfig
-              fi
-            done
-          fi
 
           # Enabling TCP_CONG_ADVANCED also exposes the sibling congestion control
           # algorithms (tcp_bic/htcp/westwood), which in the effective GKI config
@@ -1125,30 +1104,6 @@ jobs:
           fi
 
           echo "BBRv3 enabled."
-
-      # Selected performance patches (WildKernels kernel_patches/common).
-      # All verified fuzz=0 against android16-6.12-2026-06. Some touch the
-      # same files as other steps (file_struct_8bytes_align -> fs.h also
-      # used by SUSFS; disable_cache_hot_buddy -> fair.c), applied after
-      # SUSFS/KernelSU so those edits are already in place.
-      - name: Apply Performance patches
-        if: inputs.use_performance
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          echo "Applying performance patches..."
-          # fuzz=2 (patch default): several of these target upstream code that
-          # drifted on android16-6.12 (e.g. optimized_mem_operations anchors on
-          # lib/string.c includes that moved); fuzz=0 rejects them.
-          for P in optimized_mem_operations int_sqrt optimise_memcmp \
-                   reduce_freeze_timeout add_timeout_wakelocks_globally \
-                   reduce_gc_thread_sleep_time f2fs_enlarge_min_fsync_blocks \
-                   increase_ext4_default_commit_age reduce_cache_pressure \
-                   increase_sk_mem_packets file_struct_8bytes_align \
-                   disable_cache_hot_buddy silence_system_logspam; do
-            patch -p1 --fuzz=2 < "$GITHUB_WORKSPACE/.github/patches/performance/$P.patch" \
-              || { echo "::error::performance $P.patch failed"; exit 1; }
-          done
-          echo "Performance patches applied."
 
       - name: Apply VPNHide Next patches
         if: inputs.use_vpnhide
@@ -1185,17 +1140,11 @@ jobs:
           grep -q 'fs/nomount/Kconfig' fs/Kconfig || perl -0pi -e 's/^(config IO_WQ\n\tbool)\n/$1\nsource "fs\/nomount\/Kconfig"\n/m' fs/Kconfig
           mkdir -p ./fs/nomount
           NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
-          # master = hookless base (stable), dev = CI/nightly. hookless is the
-          # default; ci tracks upstream dev for newer builds.
-          case "${{ inputs.nomount_variant }}" in
-            "ci")
-              NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
-              NOMOUNT_BRANCH="dev"
-              ;;
-            *)
-              NOMOUNT_BRANCH="master"
-              ;;
-          esac
+          NOMOUNT_BRANCH="master"
+          if [ "${{ inputs.nomount_variant }}" == "hookless" ]; then
+            NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
+            NOMOUNT_BRANCH="dev"
+          fi
           # Fetch the current driver from the upstream repo so we don't have to
           # re-bump the bundled copy on every upstream release. Fall back to the
           # local snapshot if the network fetch fails.
