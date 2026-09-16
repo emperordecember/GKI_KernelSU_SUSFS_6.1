@@ -1412,21 +1412,6 @@ jobs:
         if: inputs.use_zram
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
-            # 6.12: SukiSU_patch has no zram_patch/6.12 (last is 6.6), so the
-            # old stack below would copy lib/lz4 + lz4k sources but never apply
-            # the lz4kd/lz4k_oplus glue patches -- zram then references
-            # LZ4K/LZ4KD APIs that do not exist and the phone bootloops.
-            # zhou200830512/6.12 ships working 6.12 patches: LZ4 1.10 + NEON,
-            # ZSTD 1.5.7 and a full LZ4K/LZ4KD backport (crypto + zram
-            # backends + lib). Verified fuzz=0 on 6.12-2025-06 and 6.12-2026-06.
-            echo "6.12: applying LZ4 1.10 + LZ4KD + ZSTD 1.5.7 patches..."
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/zram/001-lz4.patch" || { echo "::error::zram 001-lz4.patch failed"; exit 1; }
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/zram/lz4kd.patch" || { echo "::error::zram lz4kd.patch failed"; exit 1; }
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/zram/002-zstd.patch" || { echo "::error::zram 002-zstd.patch failed"; exit 1; }
-            exit 0
-          fi
-
           echo "Upgrading LZ4..."
           rm -f lib/lz4/lz4_compress.c lib/lz4/lz4_decompress.c lib/lz4/lz4defs.h lib/lz4/lz4hc_compress.c
 
@@ -1533,22 +1518,7 @@ jobs:
           fi
 
           if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
-            if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
-              # lz4kd.patch (6.12) has no LZ4K_OPLUS backend; the SukiSU stack
-              # that provides it stops at 6.6. Leaving CONFIG_CRYPTO_LZ4K_OPLUS
-              # in the fragment would fail check_config.py (unknown symbol).
-              # 6.12 zram uses the ZRAM_BACKEND_* model, so also enable the
-              # LZ4K/LZ4KD/842 backends (crypto sides come from zram.config).
-              grep -v 'CONFIG_CRYPTO_LZ4K_OPLUS' "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
-              {
-                echo "CONFIG_ZRAM_BACKEND_LZ4HC=y"
-                echo "CONFIG_ZRAM_BACKEND_LZ4K=y"
-                echo "CONFIG_ZRAM_BACKEND_LZ4KD=y"
-                echo "CONFIG_ZRAM_BACKEND_842=y"
-              } >> "$CONFIG_FILE"
-            else
-              cat "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
-            fi
+            cat "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
           fi
 
       - name: Add BBG (Baseband Guard) anti-brick patch
