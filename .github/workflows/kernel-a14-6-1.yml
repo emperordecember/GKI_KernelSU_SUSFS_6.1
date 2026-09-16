@@ -1,57 +1,148 @@
-name: Kernel Build Pipeline
+name: Kernel Build - Android 14 (6.1)
 
 permissions:
   contents: write
   actions: write
 
 on:
+  workflow_dispatch:
+    inputs:
+      kernel_source:
+        description: "Kernel source"
+        required: true
+        type: choice
+        options:
+          - "Original (GKI common)"
+          - "Sultan (Pixel Tensor G4 / zumapro)"
+          - "Sultan (Pixel Tensor G4 / tegu)"
+        default: "Original (GKI common)"
+      kernelsu_variant:
+        description: "KernelSU variant"
+        required: true
+        type: choice
+        options:
+          - Official
+          - Next
+          - SukiSU
+          - SukiSU(40726)
+          - SukiSU(40548)
+          - ReSukiSU
+          - XXKSU
+        default: ReSukiSU
+      susfs:
+        description: "SUSFS mount hiding"
+        required: false
+        type: choice
+        options:
+          - "enabled"
+          - "disabled"
+        default: "enabled"
+      nomount:
+        description: "NoMount / Mountify mount hiding (metamodules)"
+        required: false
+        type: choice
+        options:
+          - "nomount (hookless)"
+          - "nomount (ci)"
+          - "mountify"
+          - "disabled"
+        default: "disabled"
+      version:
+        description: "Custom version name (optional)"
+        required: false
+        type: string
+      build_time:
+        description: "Custom build time (optional, leave empty = current UTC)"
+        required: false
+        type: string
+        default: "Sun Dec 01 08:10:00 UTC 2024"
+      use_kpm:
+        description: "KPM support (patched mode not supported yet)"
+        required: true
+        type: choice
+        default: "disabled"
+        options:
+          - "disabled"
+          - "enabled"
+          - "patched (not supported yet)"
+      droidspaces:
+        description: "Droidspaces container support"
+        required: false
+        type: choice
+        options:
+          - "off"
+          - "678"
+          - "123"
+          - "345"
+        default: "off"
+      artifact_upload_mode:
+        description: "Build artifact upload mode"
+        required: true
+        type: choice
+        options:
+          - "AnyKernel3.zip only"
+          - "Upload all"
+        default: "AnyKernel3.zip only"
+      droidspaces_ntsync:
+        description: "Enable NTSync support inside the Droidspaces container (requires Droidspaces)"
+        required: false
+        type: boolean
+        default: false
+      use_zram:
+        description: "Enable enhanced ZRAM algorithm (forced off automatically for ReSukiSU — see note below, known bootloop bug)"
+        required: true
+        type: boolean
+        default: false
+      use_bbg:
+        description: "Enable BBG (Baseband Guard, anti-brick)"
+        required: true
+        type: boolean
+        default: false
+      use_rekernel:
+        description: "Enable Re-Kernel driver"
+        required: false
+        type: boolean
+        default: false
+      cve_2026_43499_patch:
+        description: "Apply CVE-2026-43499 rtmutex fix chain"
+        required: false
+        type: boolean
+        default: false
+      use_bbrv3:
+        description: "Enable BBRv3 TCP congestion control backport (android14-6.1; GKI common path only, warning no-op on Sultan path)"
+        required: false
+        type: boolean
+        default: false
+      use_vpnhide:
+        description: "Enable VPNHide Next (LSM-based VPN hiding)"
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
-      # ==================== Basic configuration ====================
-      android_version:
+      kernel_source:
+        required: false
+        type: string
+        default: "Original (GKI common)"
+      kernelsu_variant:
         required: true
         type: string
-      kernel_version:
-        required: true
-        type: string
-      sub_level:
-        required: true
-        type: string
-      os_patch_level:
-        required: true
-        type: string
-
-      # ==================== KernelSU configuration ====================
-      ksu_variant:
-        required: true
-        type: string
-
-      # ==================== Optional configuration ====================
       version:
         required: false
         type: string
-      revision:
-        required: false
-        type: string
-        default: "r1"
       build_time:
         required: false
         type: string
         default: "Sun Dec 01 08:10:00 UTC 2024"
-
-      # ==================== Feature switches ====================
       use_zram:
         required: true
         type: boolean
-        default: true
       use_bbg:
         required: true
         type: boolean
-        default: true
       use_kpm:
         required: true
         type: string
-        default: "disabled"
       use_rekernel:
         required: false
         type: boolean
@@ -60,32 +151,14 @@ on:
         required: false
         type: boolean
         default: false
-      enable_susfs:
-        required: true
-        type: boolean
-        default: true
-      enable_nomount:
-        required: false
-        type: boolean
-        default: false
-      nomount_variant:
-        description: "NoMount driver source: hookless (master, stable) or ci (dev, nightly)"
+      susfs:
         required: false
         type: string
-        default: "hookless"
-      use_bbrv3:
+        default: "enabled"
+      nomount:
         required: false
-        type: boolean
-        default: false
-      use_vpnhide:
-        description: "Enable VPNHide Next (soranerai/vpnhide_next_backend) LSM-based VPN hiding"
-        required: false
-        type: boolean
-        default: false
-      supp_op:
-        required: false
-        type: boolean
-        default: false
+        type: string
+        default: "disabled"
       droidspaces:
         required: false
         type: string
@@ -98,1861 +171,114 @@ on:
         required: false
         type: boolean
         default: false
+      called_from_main:
+        description: "Whether this was invoked from main.yml (internal use)"
+        required: false
+        type: boolean
+        default: false
+      use_bbrv3:
+        required: false
+        type: boolean
+        default: false
+      use_vpnhide:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  build-kernel:
-    name: "${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-${{ inputs.ksu_variant }}"
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    env:
-      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
-      CCACHE_NOHASHDIR: "true"
-      CCACHE_HARDLINK: "true"
-
-    steps:
-      - name: Build info summary
-        run: |
-          echo "========================================"
-          echo "       Kernel build configuration summary"
-          echo "========================================"
-          echo "Android version  : ${{ inputs.android_version }}"
-          echo "Kernel version   : ${{ inputs.kernel_version }}"
-          echo "Sub-level        : ${{ inputs.sub_level }}"
-          echo "Patch level      : ${{ inputs.os_patch_level }}"
-          echo "KSU variant      : ${{ inputs.ksu_variant }}"
-          echo "Build time       : ${{ inputs.build_time }}"
-          echo "SUSFS enabled    : ${{ inputs.enable_susfs }}"
-          echo "NoMount enabled  : ${{ inputs.enable_nomount }}"
-          echo "BBRv3 enabled    : ${{ inputs.use_bbrv3 }}"
-          echo "VPNHide enabled  : ${{ inputs.use_vpnhide }}"
-          echo "ZRAM boost       : ${{ inputs.use_zram }}"
-          echo "BBG patch        : ${{ inputs.use_bbg }}"
-          echo "KPM support      : ${{ inputs.use_kpm }}"
-          echo "Re-Kernel        : ${{ inputs.use_rekernel }}"
-          echo "CVE-2026-43499   : ${{ inputs.cve_2026_43499_patch }}"
-          echo "Droidspaces      : ${{ inputs.droidspaces }}"
-          echo "NTSync           : ${{ inputs.droidspaces_ntsync }}"
-          echo "Upload mode      : ${{ inputs.artifact_upload_mode }}"
-          echo "Stock config     : auto-detect config/stock_defconfig"
-          echo "========================================"
-
-      - name: Free disk space
-        uses: endersonmenezes/free-disk-space@v3
-        with:
-          remove_android: true
-          remove_dotnet: true
-          remove_haskell: true
-          remove_tool_cache: true
-          remove_swap: true
-          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
-          remove_packages_one_command: true
-          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
-          rm_cmd: "rmz"
-          rmz_version: "3.1.1"
-          testing: false
-
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Initialize build environment
-        run: |
-          CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
-          KERNEL_ROOT="$GITHUB_WORKSPACE/$CONFIG"
-          mkdir -p "$KERNEL_ROOT"
-
-          LEGACY_SUKISU_CONFIG=""
-          case "${{ inputs.ksu_variant }}" in
-            SukiSU\(*\)) LEGACY_SUKISU_CONFIG="$GITHUB_WORKSPACE/config/${{ inputs.ksu_variant }}.config" ;;
-          esac
-
-          if [ -n "$LEGACY_SUKISU_CONFIG" ] && [ ! -f "$LEGACY_SUKISU_CONFIG" ]; then
-            echo "Fixed-commit config for ${{ inputs.ksu_variant }} not found: $LEGACY_SUKISU_CONFIG" >&2
-            exit 1
-          fi
-
-          cat >> $GITHUB_ENV << EOF
-          CONFIG=$CONFIG
-          KERNEL_ROOT=$KERNEL_ROOT
-          LEGACY_SUKISU_CONFIG=$LEGACY_SUKISU_CONFIG
-          DEFCONFIG=$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig
-          SUSFS4KSU=$GITHUB_WORKSPACE/susfs4ksu
-          KERNEL_PATCHES=$GITHUB_WORKSPACE/kernel_patches
-          SUKISU_PATCHES=$GITHUB_WORKSPACE/SukiSU_patch
-          ZZH_PATCHES=$GITHUB_WORKSPACE
-          ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
-          ACTION_BUILD=$GITHUB_WORKSPACE/Action-Build
-          AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool
-          MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py
-          UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py
-          BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
-          EOF
-
-          mkdir -p "$GITHUB_WORKSPACE/git-repo"
-          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
-          chmod 0755 "$GITHUB_WORKSPACE/git-repo/repo"
-          echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
-          echo "REPO=$GITHUB_WORKSPACE/git-repo/repo" >> $GITHUB_ENV
-
-      - name: Show configuration info
-        run: |
-          CONFIG_FILE="$GITHUB_WORKSPACE/config/config"
-          if [ -f "$CONFIG_FILE" ]; then
-            echo "Loading config file: $CONFIG_FILE"
-            cat "$CONFIG_FILE"
-          fi
-          if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
-            echo "Loading legacy SukiSU pinned-commit config: $LEGACY_SUKISU_CONFIG"
-            cat "$LEGACY_SUKISU_CONFIG"
-          fi
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ccache python3 git curl build-essential libssl-dev bison flex libelf-dev dwarves
-
-      - name: Configure ccache
-        run: |
-          mkdir -p ~/.cache/bazel
-          ccache --version
-          ccache --max-size=2G
-          ccache --set-config=compression=true
-          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-
-      - name: Restore ccache cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.ccache
-          key: ${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-ccache-
-
-      - name: Cache toolchain
-        id: cache-toolchain
-        uses: actions/cache@v5
-        with:
-          path: |
-            kernel-build-tools
-            mkbootimg
-          key: toolchain-${{ runner.os }}-v1
-
-      - name: Download toolchain
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: |
-          AOSP_MIRROR=https://android.googlesource.com
-          BRANCH=main-kernel-build-2024
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
-
-      - name: Generate signing key
-        run: |
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > $BOOT_SIGN_KEY_PATH
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "BuildBot"
-          git config --global user.email "BuildGkiKernel@gmail.com"
-
-      - name: Clone dependency repositories
-        run: |
-          ANYKERNEL_BRANCH="gki-2.0"
-          SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-
-          echo "Cloning AnyKernel3..."
-          git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
-          rm -rf AnyKernel3/.git
-
-          echo "Cloning SUSFS (branch: $SUSFS_BRANCH)..."
-          if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
-            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          elif [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
-            if ! git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" 2>/dev/null; then
-              echo "Branch $SUSFS_BRANCH not found in ShirkNeko repo, falling back to simonpunk upstream..."
-              git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-            fi
-          else
-            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-          fi
-
-          if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
-            SUSFS_FIXED_COMMIT=$(grep "^${SUSFS_BRANCH}=" "$LEGACY_SUKISU_CONFIG" | cut -d'=' -f2-)
-            if [ -z "$SUSFS_FIXED_COMMIT" ]; then
-              echo "No pinned SUSFS commit configured for $SUSFS_BRANCH in $LEGACY_SUKISU_CONFIG" >&2
-              exit 1
-            fi
-            echo "${{ inputs.ksu_variant }} pinned SUSFS commit: $SUSFS_FIXED_COMMIT"
-            git -C susfs4ksu checkout "$SUSFS_FIXED_COMMIT"
-          fi
-
-          CONFIG_FILE="config/config"
-          if [ -z "$LEGACY_SUKISU_CONFIG" ] && [ -f "$CONFIG_FILE" ]; then
-            CUSTOM_ENABLED=$(grep "^custom=" "$CONFIG_FILE" | cut -d'=' -f2)
-            if [ "$CUSTOM_ENABLED" == "true" ]; then
-              CUSTOM_COMMIT=$(grep "^${SUSFS_BRANCH}=" "$CONFIG_FILE" | cut -d'=' -f2)
-              if [ -n "$CUSTOM_COMMIT" ]; then
-                echo "Switching SUSFS to custom commit: $CUSTOM_COMMIT"
-                cd susfs4ksu
-                git checkout "$CUSTOM_COMMIT"
-                cd ..
-              fi
-            fi
-          fi
-
-          SUSFS_LATEST_COMMIT_DATE=$(git -C susfs4ksu log -1 --date=format:'%Y-%m-%d %H:%M:%S %z' --format='%cd')
-          echo "SUSFS_LATEST_COMMIT_DATE=$SUSFS_LATEST_COMMIT_DATE" >> $GITHUB_ENV
-          echo "SUSFS repo latest commit date: $SUSFS_LATEST_COMMIT_DATE"
-
-          echo "Preparing patch resources..."
-          git clone https://github.com/WildKernels/kernel_patches.git
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          echo "Using current repo patch directory: $ZZH_PATCHES"
-          git clone https://github.com/Numbersf/Action-Build.git --depth=1
-
-      - name: Initialize and sync kernel source
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-6.4.1.git gcc
-
-          FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
-          echo "Initializing repo, branch: common-${FORMATTED_BRANCH}"
-
-          $REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
-
-          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
-          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
-
-          if grep -q deprecated <<< $REMOTE_BRANCH; then
-            echo "Detected deprecated branch: $FORMATTED_BRANCH"
-            sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
-          fi
-
-          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
-          echo "REMOTE_BRANCH=$REMOTE_BRANCH" >> $GITHUB_ENV
-
-      # Snapshot the pristine stock defconfig BEFORE any step modifies it
-      # (force-disable ZRAM, VPNHide, NoMount, NTSync, SUSFS config, ...).
-      # Build kernel diffs this baseline against the final defconfig to
-      # produce the ksu.fragment; if the baseline is taken too late, earlier
-      # edits leak into the baseline, never reach the fragment, and bazel's
-      # savedefconfig trim check fails with "does not match gki_defconfig".
-      - name: Back up baseline defconfig
-        run: cp "$DEFCONFIG" "$DEFCONFIG.orig"
-
-      - name: Apply stock config spoofing
-        run: |
-          STOCK_SRC="$GITHUB_WORKSPACE/config/stock_defconfig"
-          STOCK_DST="$KERNEL_ROOT/common/arch/arm64/configs/stock_defconfig"
-
-          if [ ! -f "$STOCK_SRC" ]; then
-            echo "$STOCK_SRC not found, skipping stock config spoofing."
-            exit 0
-          fi
-
-          mkdir -p "$(dirname "$STOCK_DST")"
-          if ! cp "$STOCK_SRC" "$STOCK_DST"; then
-            echo "::error::Failed to copy stock_defconfig: $STOCK_SRC -> $STOCK_DST"
-            exit 1
-          fi
-          echo "Copied stock_defconfig -> $STOCK_DST"
-
-          NEW_RULE='$(obj)/config_data: arch/arm64/configs/stock_defconfig FORCE'
-          OLD_RULE='$(obj)/config_data: $(KCONFIG_CONFIG) FORCE'
-          TARGET_MAKEFILE="$KERNEL_ROOT/common/kernel/Makefile"
-
-          if [ ! -f "$TARGET_MAKEFILE" ]; then
-            echo "::error::$TARGET_MAKEFILE not found"
-            exit 1
-          fi
-
-          if grep -qF "$NEW_RULE" "$TARGET_MAKEFILE"; then
-            echo "config_data rule is already stock_defconfig, skipping."
-          elif grep -qF "$OLD_RULE" "$TARGET_MAKEFILE"; then
-            sed -i 's|$(obj)/config_data: $(KCONFIG_CONFIG) FORCE|$(obj)/config_data: arch/arm64/configs/stock_defconfig FORCE|' "$TARGET_MAKEFILE"
-            echo "Replaced config_data rule: $TARGET_MAKEFILE"
-          else
-            echo "::error::Rule not found in $TARGET_MAKEFILE: $OLD_RULE"
-            exit 1
-          fi
-
-      - name: Extract actual sub-level
-        run: |
-          ACTUAL_SUBLEVEL="${{ inputs.sub_level }}"
-          if [[ -f "$KERNEL_ROOT/common/Makefile" ]]; then
-            EXTRACTED=$(grep '^SUBLEVEL = ' "$KERNEL_ROOT/common/Makefile" | awk '{print $3}')
-            [[ -n "$EXTRACTED" ]] && ACTUAL_SUBLEVEL="$EXTRACTED"
-          fi
-          echo "ACTUAL_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
-          echo "Actual sub-level: $ACTUAL_SUBLEVEL"
-
-      # Judged against the actual synced SUBLEVEL, to avoid double-patching an LTS
-      # branch that already carries the upstream fix.
-      - name: Auto-apply CVE-2026-43499 rtmutex fix chain
-        if: inputs.cve_2026_43499_patch
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          bash "$GITHUB_WORKSPACE/security_patch/apply_cve_2026_43499.sh" \
-            "${{ inputs.kernel_version }}" \
-            "$ACTUAL_SUBLEVEL" \
-            "$GITHUB_WORKSPACE/security_patch"
-
-      - name: Fix glibc 2.38 compatibility
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          RAW_SUB="${{ inputs.sub_level }}"
-          [[ ! "$RAW_SUB" =~ ^[0-9]+$ ]] && CURRENT_SUB=99999 || CURRENT_SUB=$RAW_SUB
-
-          NEEDS_FIX=false
-          if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && $CURRENT_SUB -le 186 ]] ||
-             [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && $CURRENT_SUB -le 119 ]] ||
-             [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $CURRENT_SUB -le 43 ]]; then
-            NEEDS_FIX=true
-          fi
-
-          if [ "$NEEDS_FIX" = true ]; then
-            GLIBC_VERSION=$(ldd --version 2>/dev/null | head -n 1 | awk '{print $NF}')
-            if [ "$(printf '%s\n' "2.38" "$GLIBC_VERSION" | sort -V | head -n1)" = "2.38" ]; then
-              echo "Applying glibc 2.38 compatibility fix..."
-              sed -i '/\$(Q)\$(MAKE) -C \$(SUBCMD_SRC) OUTPUT=\$(abspath \$(dir \$@))\/ \$(abspath \$@)/s//$(Q)$(MAKE) -C $(SUBCMD_SRC) EXTRA_CFLAGS="$(CFLAGS)" OUTPUT=$(abspath $(dir $@))\/ $(abspath $@)/' tools/bpf/resolve_btfids/Makefile 2>/dev/null || true
-
-              if [[ "${{ inputs.kernel_version }}" == "5.10" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
-                sed -i '/char \*buf = NULL;/a int i;' tools/lib/subcmd/parse-options.c 2>/dev/null || true
-                sed -i 's/for (int i = 0; subcommands\[i\]; i++) {/for (i = 0; subcommands[i]; i++) {/' tools/lib/subcmd/parse-options.c 2>/dev/null || true
-                sed -i '/if (subcommands) {/a int i;' tools/lib/subcmd/parse-options.c 2>/dev/null || true
-                sed -i 's/for (int i = 0; subcommands\[i\]; i++)/for (i = 0; subcommands[i]; i++)/' tools/lib/subcmd/parse-options.c 2>/dev/null || true
-              fi
-            fi
-          fi
-
-      - name: Add OnePlus 8E chipset support
-        if: inputs.supp_op
-        working-directory: ${{ env.KERNEL_ROOT }}/common/drivers
-        run: |
-          echo "Downloading OnePlus 8E support patch..."
-          curl -LSs "https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/dev/hmbird_patch.c" -o hmbird_patch.c
-          echo "obj-y += hmbird_patch.o" >> Makefile
-
-      - name: Determine KernelSU branch
-        id: ksu-branch
-        run: |
-          variant_input="${{ inputs.ksu_variant }}"
-
-          case "$variant_input" in
-            "Official"|"ReSukiSU")
-              BRANCH="-s main"
-              ;;
-            "SukiSU")
-              if [ "${{ inputs.enable_susfs }}" = "false" ]; then
-                BRANCH="-s main"
-              else
-                BRANCH="-s builtin"
-              fi
-              ;;
-            "Next")
-              BRANCH=""
-              ;;
-            "XXKSU")
-              BRANCH=""
-              ;;
-            *)
-              if [ -z "$LEGACY_SUKISU_CONFIG" ] || [ ! -f "$LEGACY_SUKISU_CONFIG" ]; then
-                echo "Unknown variant: $variant_input" >&2
-                exit 1
-              fi
-              SUKISU_FIXED_COMMIT=$(grep "^sukisu=" "$LEGACY_SUKISU_CONFIG" | cut -d'=' -f2-)
-              if [ -z "$SUKISU_FIXED_COMMIT" ]; then
-                echo "No pinned SukiSU commit configured in $LEGACY_SUKISU_CONFIG" >&2
-                exit 1
-              fi
-              BRANCH="-s $SUKISU_FIXED_COMMIT"
-              ;;
-          esac
-
-          # Check custom commit (SukiSU only)
-          CONFIG_FILE="config/config"
-          if [ -f "$CONFIG_FILE" ]; then
-            CUSTOM_ENABLED=$(grep "^custom=" "$CONFIG_FILE" | cut -d'=' -f2)
-            if [ "$CUSTOM_ENABLED" == "true" ] && [ "$variant_input" == "SukiSU" ]; then
-              SUKISU_COMMIT=$(grep "^sukisu=" "$CONFIG_FILE" | cut -d'=' -f2)
-              if [ -n "$SUKISU_COMMIT" ]; then
-                BRANCH="-s $SUKISU_COMMIT"
-                echo "SukiSU using custom commit: $SUKISU_COMMIT"
-              fi
-            fi
-          fi
-
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "KSU branch: $BRANCH"
-
-      - name: Add KernelSU
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          case "${{ inputs.ksu_variant }}" in
-            "Official")
-              echo "Adding official KernelSU..."
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $BRANCH
-
-              cd KernelSU
-              KSU_GIT_VERSION=$(git rev-list --count HEAD)
-              KSU_VERSION=$((20000 + KSU_GIT_VERSION))
-              echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
-
-              if [ -f "kernel/Kbuild" ]; then
-                sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Kbuild
-              fi
-              cd ..
-              ;;
-            "Next")
-              echo "Adding KernelSU-Next (pershoot dev-susfs)..."
-              # SUSFS-enabled KernelSU-Next lives in pershoot's fork; the
-              # official KernelSU-Next repo dropped the dev_susfs branch.
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
-              ;;
-            "XXKSU")
-              echo "Adding XXKSU (backslashxx/kernelsu)..."
-              curl -LSs "https://raw.githubusercontent.com/backslashxx/kernelsu/master/kernel/setup.sh" | bash
-
-              cd KernelSU
-              KSU_GIT_VERSION=$(git rev-list --count HEAD)
-              KSU_VERSION=$((30000 + KSU_GIT_VERSION))
-              echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
-
-              if [ -f "kernel/Makefile" ]; then
-                sed -i "s/-DKSU_VERSION=[0-9]*/-DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
-              fi
-              cd ..
-              ;;
-            "SukiSU")
-              echo "Adding ${{ inputs.ksu_variant }}..."
-              curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
-              ;;
-            "ReSukiSU")
-              echo "Adding ReSukiSU..."
-              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash $BRANCH
-              ;;
-            *)
-              if [ -z "$LEGACY_SUKISU_CONFIG" ]; then
-                echo "Unknown variant: ${{ inputs.ksu_variant }}" >&2
-                exit 1
-              fi
-              echo "Adding ${{ inputs.ksu_variant }}..."
-              curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
-              ;;
-          esac
-
-          if [ -d "KernelSU/.git" ]; then
-            KSU_LATEST_COMMIT_DATE=$(git -C KernelSU log -1 --date=format:'%Y-%m-%d %H:%M:%S %z' --format='%cd')
-            echo "KSU_LATEST_COMMIT_DATE=$KSU_LATEST_COMMIT_DATE" >> $GITHUB_ENV
-          else
-            echo "KSU_LATEST_COMMIT_DATE=unknown" >> $GITHUB_ENV
-          fi
-
-      # This runs for every variant, not just ReSukiSU: the two ZRAM steps further below
-      # only ever ADD config when use_zram is true, they never actively turn ZRAM off.
-      # If ZRAM already ships enabled in the stock gki_defconfig, or a KSU variant's own
-      # setup.sh pins its own zram/zsmalloc config, "disabled" here would otherwise be a
-      # no-op instead of an actual disable. So explicitly force it off whenever the user
-      # asked for it to be off, regardless of which variant is selected.
-      #
-      # NOTE on HOW it is forced off: lines are DELETED, never rewritten to
-      # "# CONFIG_X is not set". `make savedefconfig` (kernel_aarch64_config trim
-      # check) omits any option whose value equals its Kconfig default, so "not set"
-      # lines in defconfig/fragment get dropped by savedefconfig and the build fails
-      # with "savedefconfig does not match gki_defconfig". Deleting the line lets the
-      # option fall back to its default (n for ZRAM and friends) -- which is exactly
-      # what savedefconfig outputs, so the check passes.
-      - name: Force-disable ZRAM config when use_zram is off
-        if: ${{ !inputs.use_zram }}
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          echo "use_zram is disabled -- forcing ZRAM config off regardless of what the stock/base defconfig already sets..."
-          for CFG in CONFIG_ZRAM CONFIG_ZSMALLOC CONFIG_ZRAM_DEF_COMP_LZ4KD CONFIG_ZRAM_DEF_COMP_LZ4K CONFIG_CRYPTO_LZO CONFIG_ZRAM_BACKEND_LZ4 CONFIG_ZRAM_BACKEND_ZSTD CONFIG_ZRAM_BACKEND_LZO CONFIG_ZRAM_WRITEBACK CONFIG_ZRAM_MULTI_COMP CONFIG_ZRAM_ANDROID_IOCTL; do
-            if grep -q "^${CFG}=y$\|^${CFG}=m$" "$DEFCONFIG"; then
-              sed -i "/^${CFG}=y$/d; /^${CFG}=m$/d" "$DEFCONFIG"
-              echo "  Removed $CFG from defconfig"
-            elif grep -q "^# ${CFG} is not set$" "$DEFCONFIG"; then
-              echo "  Already disabled: $CFG"
-            else
-              echo "  $CFG absent (defaults to off)"
-            fi
-          done
-
-          # Neither zram.ko nor zsmalloc.ko will be built at all now, but bazel's
-          # common/modules.bzl still lists them as expected dist outputs by default
-          # (this is the exact same sed the "Configure ZRAM options" step uses on the
-          # opposite path, when it converts them to CONFIG_*=y built-ins instead).
-          # Without this, bazel fails with "Unable to find drivers/block/zram/zram.ko".
-          if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
-            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' common/modules.bzl
-            echo "  Stripped zram.ko/zsmalloc.ko from common/modules.bzl"
-          fi
-
-          # CONFIG_ZSMALLOC is off, so these exports genuinely no longer exist in the
-          # ksymtab -- the strict KMI symbol-list check fails otherwise ("Symbols
-          # missing from the ksymtab"). Strip them from every abi_gki_aarch64* list
-          # instead of disabling strict mode wholesale, so real, unrelated ABI
-          # breakage still gets caught.
-          for ZS_SYM in zs_compact zs_create_pool zs_destroy_pool zs_free zs_get_total_pages zs_huge_class_size zs_malloc zs_map_object zs_pool_stats zs_unmap_object; do
-            for LIST_FILE in common/android/abi_gki_aarch64*; do
-              [ -f "$LIST_FILE" ] || continue
-              sed -i "/^[[:space:]]*${ZS_SYM}[[:space:]]*$/d" "$LIST_FILE"
-            done
-          done
-          echo "  Removed zsmalloc symbols from android/abi_gki_aarch64* KMI symbol lists"
-
-      - name: Configure SukiSU manager info
-        if: inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'SukiSU(40726)' || inputs.ksu_variant == 'SukiSU(40548)'
-        working-directory: ${{ env.KERNEL_ROOT }}/KernelSU
-        run: |
-          KBUILD_FILE="./kernel/Kbuild"
-          CUSTOM_TAG="${{ vars.MANAGER_STR }}"
-
-          if [ ! -f "$KBUILD_FILE" ]; then
-            echo "$KBUILD_FILE not found, skipping SukiSU version tag customization"
-            exit 0
-          fi
-
-          GIT_HASH=$(git rev-parse --short=8 HEAD)
-          BRANCH_NAME="${BRANCH#-s }"
-          if [ -z "$BRANCH_NAME" ] || [ "$BRANCH_NAME" = "$BRANCH" ]; then
-            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-          fi
-
-          if [ -n "$CUSTOM_TAG" ]; then
-            VERSION_TEMPLATE="v\$1-$CUSTOM_TAG@$BRANCH_NAME[$GIT_HASH]"
-          else
-            VERSION_TEMPLATE="v\$1-$GIT_HASH@$BRANCH_NAME"
-          fi
-
-          awk -v body="$VERSION_TEMPLATE" '
-            BEGIN {
-              in_block = 0
-              replaced = 0
-            }
-            /^[[:space:]]*define get_ksu_version_full$/ {
-              print
-              print body
-              in_block = 1
-              replaced = 1
-              next
-            }
-            in_block && /^[[:space:]]*endef$/ {
-              print
-              in_block = 0
-              next
-            }
-            !in_block {
-              print
-            }
-            END {
-              if (!replaced) {
-                exit 1
-              }
-            }
-          ' "$KBUILD_FILE" > "${KBUILD_FILE}.tmp" && mv "${KBUILD_FILE}.tmp" "$KBUILD_FILE"
-
-          echo "Updated get_ksu_version_full template: $VERSION_TEMPLATE"
-
-      - name: Apply SUSFS patch
-        if: inputs.enable_susfs
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          echo "Applying SUSFS patch..."
-
-          SUSFS_PATCH="50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
-          cp "$SUSFS4KSU/kernel_patches/$SUSFS_PATCH" ./common/
-          cp $SUSFS4KSU/kernel_patches/fs/* ./common/fs/
-          cp $SUSFS4KSU/kernel_patches/include/linux/* ./common/include/linux/
-
-          case "${{ inputs.ksu_variant }}" in
-            "Official")
-              cd ./KernelSU
-              cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-              # Legacy patch compatibility: only rewrite to kernel/Kbuild if the patch still targets kernel/Makefile only
-              if grep -q '^diff --git a/kernel/Makefile b/kernel/Makefile' ./10_enable_susfs_for_ksu.patch \
-                && ! grep -q '^diff --git a/kernel/Kbuild b/kernel/Kbuild' ./10_enable_susfs_for_ksu.patch; then
-                sed -i 's|kernel/Makefile|kernel/Kbuild|g' ./10_enable_susfs_for_ksu.patch
-              fi
-              patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
-
-              cd ..
-              ;;
-            "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"ReSukiSU")
-              echo "Next/SukiSU/SukiSU(40726)/SukiSU(40548)/ReSukiSU use built-in SUSFS support"
-              ;;
-            "XXKSU")
-              echo "::warning::SUSFS patch is incompatible with XXKSU (unity-build kernel/Makefile, no kernel/Kbuild). Skipping SUSFS; kernel builds without SUSFS hooks."
-              ;;
-          esac
-
-          cd $KERNEL_ROOT/common
-          CURRENT_SUB="${{ inputs.sub_level }}"
-          if [[ ! "$CURRENT_SUB" =~ ^[0-9]+$ ]]; then
-            CURRENT_SUB=99999
-          fi
-
-          # 兜底兼容 SUSFS 上游误将 5.15+ 的 set_nameidata 四参数调用用于 Android 12 5.10，上游修复后自动跳过
-          if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]] \
-            && grep -qF 'static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)' fs/namei.c \
-            && grep -qF 'set_nameidata(nd, old_dfd, fake_filename, NULL);' "$SUSFS_PATCH"; then
-            echo "检测到 Android 12 5.10 set_nameidata 三参数接口，修正 SUSFS 补丁中的四参数调用"
-            sed -i 's/set_nameidata(nd, old_dfd, fake_filename, NULL);/set_nameidata(nd, old_dfd, fake_filename);/g' "$SUSFS_PATCH"
-          fi
-
-          # 兼容 5.10.66~5.10.209、5.15.74~5.15.144 和 6.1.25~6.1.68 缺少 VMA padding 接口
-          if grep -qF 'VMA_PAD_START(vma)' "$SUSFS_PATCH" \
-            && ! grep -Rqs 'VMA_PAD_START' ./include/linux; then
-            echo "目标内核未提供 VMA_PAD_START，使用 vma->vm_end 兼容 SUSFS OPEN_REDIRECT"
-            sed -i 's/VMA_PAD_START(vma)/vma->vm_end/g' "$SUSFS_PATCH"
-          fi
-
-          # 6.12-2026-03+ (sublevel 69+) renamed vma_pages() to vma_data_pages() in
-          # fs/proc/task_mmu.c; the SUSFS SUS_MAP hunk anchors on
-          # 'if (!vma_pages(vma))' and gets rejected on those kernels.
-          # Rewrite the anchor to match the tree (vma_pages() itself still
-          # exists in include/linux/mm.h, so check task_mmu.c, not the headers).
-          if [[ "${{ inputs.kernel_version }}" == "6.12" ]] \
-            && grep -q 'if (!vma_pages(vma))' "$SUSFS_PATCH" \
-            && grep -q 'vma_data_pages' fs/proc/task_mmu.c; then
-            echo "6.12 kernel uses vma_data_pages(); adjusting SUSFS task_mmu.c context"
-            sed -i 's/if (!vma_pages(vma))/if (!vma_data_pages(vma))/g' "$SUSFS_PATCH"
-          fi
-
-          # Temporarily adjust source context before applying the main patch, replacing the archived wild micro-fixes
-          if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
-            if [[ "$CURRENT_SUB" -le 43 ]]; then
-              echo "Temporarily adjusting Android 12 5.10 base.c context"
-              perl -i -pe 's/(int|size_t)\s+this_len\s*=\s*min_t\s*\(\s*\1\s*,/size_t this_len = min_t(size_t,/;' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -le 117 ]]; then
-              echo "Temporarily adjusting Android 12 5.10 fdinfo.c context"
-              sed -i '/^[[:space:]]*\/\*$/,/^[[:space:]]*u32 mask = mark->mask & IN_ALL_EVENTS;$/d' fs/notify/fdinfo.c
-              perl -i -pe 's/\bmask,\s*mark->ignored_mask/inotify_mark_user_mask(mark)/g' fs/notify/fdinfo.c
-              perl -i -pe 's/ignored_mask:%x/ignored_mask:0/g' fs/notify/fdinfo.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
-            if [[ "$CURRENT_SUB" -le 107 ]]; then
-              echo "Temporarily adjusting Android 13 5.10 fdinfo.c context"
-              sed -i '/^[[:space:]]*\/\*$/,/^[[:space:]]*u32 mask = mark->mask & IN_ALL_EVENTS;$/d' fs/notify/fdinfo.c
-              perl -i -pe 's/\bmask,\s*mark->ignored_mask/inotify_mark_user_mask(mark)/g' fs/notify/fdinfo.c
-              perl -i -pe 's/ignored_mask:%x/ignored_mask:0/g' fs/notify/fdinfo.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
-            if [[ "$CURRENT_SUB" -le 41 ]]; then
-              echo "Temporarily adjusting Android 13 5.15 namespace.c/open.c/fdinfo.c context"
-              if ! grep -qF '#include <linux/mnt_idmapping.h>' fs/namespace.c; then
-                sed -i '/^#include <linux\/shmem_fs.h>$/a #include <linux/mnt_idmapping.h>' fs/namespace.c
-              fi
-              if ! grep -qF '#include <linux/mnt_idmapping.h>' fs/open.c; then
-                sed -i '/^#include <linux\/compat.h>$/a #include <linux/mnt_idmapping.h>' fs/open.c
-              fi
-              sed -i '/^[[:space:]]*\/\*$/,/^[[:space:]]*u32 mask = mark->mask & IN_ALL_EVENTS;$/d' fs/notify/fdinfo.c
-              perl -i -pe 's/\bmask,\s*mark->ignored_mask/inotify_mark_user_mask(mark)/g' fs/notify/fdinfo.c
-              perl -i -pe 's/ignored_mask:%x/ignored_mask:0/g' fs/notify/fdinfo.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
-            if [[ "$CURRENT_SUB" -le 25 ]] && ! grep -qF '#include <trace/hooks/sched.h>' fs/proc/base.c; then
-              echo "Temporarily adjusting Android 14 6.1 sched.h context"
-              sed -i '/^#include <trace\/events\/oom.h>$/a #include <trace/hooks/sched.h>' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -le 141 ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/proc/base.c; then
-              echo "Temporarily adjusting Android 14 6.1 dma-buf.h context"
-              sed -i '/^#include <linux\/cpufreq_times.h>$/a #include <linux/dma-buf.h>' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -ge 157 ]]; then
-              echo "Temporarily adjusting Android 14 6.1 namespace.c context"
-              sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
-            if [[ "$CURRENT_SUB" -le 30 ]] && ! grep -qF 'last_vma_end = vma->vm_end;' fs/proc/task_mmu.c; then
-              echo "Temporarily adjusting Android 15 6.6 task_mmu.c context"
-              sed -i '/smap_gather_stats(vma, &mss, last_vma_end);/a\last_vma_end = vma->vm_end;' fs/proc/task_mmu.c
-            fi
-            if [[ "$CURRENT_SUB" -le 92 ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/proc/base.c; then
-              echo "Temporarily adjusting Android 15 6.6 base.c context"
-              sed -i '/^#include <linux\/cpufreq_times.h>$/a #include <linux/dma-buf.h>' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -le 57 ]] && ! grep -qF '#include <linux/zswap.h>' mm/memory.c; then
-              echo "Temporarily adjusting Android 15 6.6 memory.c context"
-              sed -i '/^#include <linux\/sched\/sysctl.h>$/a #include <linux/zswap.h>' mm/memory.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-            if [[ "$CURRENT_SUB" -ge 58 ]]; then
-              echo "Temporarily adjusting Android 16 6.12 exec.c context"
-              sed -i '/^#include <linux\/dma-buf.h>$/d' fs/exec.c
-            fi
-          fi
-
-          patch -p1 < "$SUSFS_PATCH" || true
-
-          # Revert the temporary context after the main patch is applied, to avoid unrelated source diffs leaking into the final artifact
-          if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
-            if [[ "$CURRENT_SUB" -le 43 ]]; then
-              echo "Reverting Android 12 5.10 base.c temporary adjustment"
-              sed -i 's/^size_t this_len = min_t(size_t, count, PAGE_SIZE);$/int this_len = min_t(int, count, PAGE_SIZE);/' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -le 117 ]]; then
-              echo "Reverting Android 12 5.10 fdinfo.c temporary adjustment"
-              perl -i -pe 's/^(\s+if \(inode\) \{)/$1\n\t\t\/\*\n\t\t * IN_ALL_EVENTS represents all of the mask bits\n\t\t * that we expose to userspace.  There is at\n\t\t * least one bit (FS_EVENT_ON_CHILD) which is\n\t\t * used only internally to the kernel.\n\t\t *\/\n\t\tu32 mask = mark->mask & IN_ALL_EVENTS;/m' fs/notify/fdinfo.c
-              perl -i -pe 's/\binotify_mark_user_mask\(mark\)/mask, mark->ignored_mask/g' fs/notify/fdinfo.c
-              perl -i -pe 's/ignored_mask:0/ignored_mask:%x/g' fs/notify/fdinfo.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
-            if [[ "$CURRENT_SUB" -le 107 ]]; then
-              echo "Reverting Android 13 5.10 fdinfo.c temporary adjustment"
-              perl -i -pe 's/^(\s+if \(inode\) \{)/$1\n\t\t\/\*\n\t\t * IN_ALL_EVENTS represents all of the mask bits\n\t\t * that we expose to userspace.  There is at\n\t\t * least one bit (FS_EVENT_ON_CHILD) which is\n\t\t * used only internally to the kernel.\n\t\t *\/\n\t\tu32 mask = mark->mask & IN_ALL_EVENTS;/m' fs/notify/fdinfo.c
-              perl -i -pe 's/\binotify_mark_user_mask\(mark\)/mask, mark->ignored_mask/g' fs/notify/fdinfo.c
-              perl -i -pe 's/ignored_mask:0/ignored_mask:%x/g' fs/notify/fdinfo.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
-            if [[ "$CURRENT_SUB" -le 41 ]]; then
-              echo "Reverting Android 13 5.15 temporary adjustment"
-              sed -i '/#include <linux\/mnt_idmapping.h>$/d' fs/namespace.c
-              sed -i '/#include <linux\/mnt_idmapping.h>$/d' fs/open.c
-              perl -i -pe 's/^(\s+if \(inode\) \{)/$1\n\t\t\/\*\n\t\t * IN_ALL_EVENTS represents all of the mask bits\n\t\t * that we expose to userspace.  There is at\n\t\t * least one bit (FS_EVENT_ON_CHILD) which is\n\t\t * used only internally to the kernel.\n\t\t *\/\n\t\tu32 mask = mark->mask & IN_ALL_EVENTS;/m' fs/notify/fdinfo.c
-              perl -i -pe 's/\binotify_mark_user_mask\(mark\)/mask, mark->ignored_mask/g' fs/notify/fdinfo.c
-              perl -i -pe 's/ignored_mask:0/ignored_mask:%x/g' fs/notify/fdinfo.c
-              sed -i 's|i_uid_into_mnt(i_user_ns(&fi->inode), &fi->inode).val|i_uid_into_mnt(\&init_user_ns, \&fi->inode).val|g' fs/susfs.c
-              sed -i 's|i_uid_into_mnt(i_user_ns(inode), inode).val|i_uid_into_mnt(\&init_user_ns, inode).val|g' fs/susfs.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
-            if [[ "$CURRENT_SUB" -le 25 ]]; then
-              sed -i '/^#include <trace\/hooks\/sched.h>$/d' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -le 141 ]]; then
-              echo "Reverting Android 14 6.1 base.c temporary adjustment"
-              sed -i '/^#include <linux\/dma-buf.h>$/d' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -ge 157 ]] && ! grep -qF '#include <trace/hooks/blk.h>' fs/namespace.c; then
-              echo "Reverting Android 14 6.1 namespace.c temporary adjustment"
-              sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
-            if [[ "$CURRENT_SUB" -le 92 ]]; then
-              echo "Reverting Android 15 6.6 base.c temporary adjustment"
-              sed -i '/^#include <linux\/dma-buf.h>$/d' fs/proc/base.c
-            fi
-            if [[ "$CURRENT_SUB" -le 57 ]]; then
-              echo "Reverting Android 15 6.6 memory.c temporary adjustment"
-              sed -i '/^#include <linux\/zswap.h>$/d' mm/memory.c
-            fi
-          fi
-
-          if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-            if [[ "$CURRENT_SUB" -ge 58 ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/exec.c; then
-              echo "Reverting Android 16 6.12 exec.c temporary adjustment"
-              sed -i '0,/^#include /s//#include <linux\/dma-buf.h>\n&/' fs/exec.c
-            fi
-          fi
-
-          if [ "${{ inputs.ksu_variant }}" == "Official" ] || [ "${{ inputs.ksu_variant }}" == "Next" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "XXKSU" ]; then
-            fix_namespace_susfs_mount_decls() {
-              local label="$1"
-              local marker_pattern="$2"
-
-              if ! grep -q "$marker_pattern" ./fs/namespace.c; then
-                return
-              fi
-
-              if ! grep -qF '#include <linux/susfs_def.h>' ./fs/namespace.c; then
-                echo "Detected ${label} namespace.c missing susfs_def.h, injecting declaration..."
-                if grep -qF '#include <linux/mnt_idmapping.h>' ./fs/namespace.c; then
-                  sed -i '/#include <linux\/mnt_idmapping.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux\/susfs_def.h>\n#endif' ./fs/namespace.c
-                elif grep -qF '#include <linux/shmem_fs.h>' ./fs/namespace.c; then
-                  sed -i '/#include <linux\/shmem_fs.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux\/susfs_def.h>\n#endif' ./fs/namespace.c
-                else
-                  sed -i '0,/^#include /s//#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux\/susfs_def.h>\n#endif\n&/' ./fs/namespace.c
-                fi
-              fi
-
-              if ! grep -q 'extern bool susfs_is_current_ksu_domain' ./fs/namespace.c; then
-                echo "Detected ${label} namespace.c missing SUSFS mount extern, injecting declaration..."
-                sed -i '/#include "internal.h"/a \\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n#define CL_COPY_MNT_NS BIT(25)\n\n#endif' ./fs/namespace.c
-              fi
-            }
-
-            fix_missing_vm_flags_clear() {
-              if [[ "${{ inputs.os_patch_level }}" == "2024-11" ]] && grep -qF 'vm_flags_clear(new_vma, VM_PAD_MASK);' ./mm/mmap.c; then
-                sed -i 's/vm_flags_clear(new_vma, VM_PAD_MASK);/new_vma->vm_flags \&= ~VM_PAD_MASK;/' ./mm/mmap.c
-              fi
-            }
-
-            fix_task_mmu_show_pad() {
-              local max_sub="$1"
-              local excluded_patch_level="${2:-}"
-
-              if [[ "$CURRENT_SUB" -le "$max_sub" ]] \
-                && { [[ -z "$excluded_patch_level" ]] || [[ "${{ inputs.os_patch_level }}" != "$excluded_patch_level" ]]; }; then
-                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
-              fi
-            }
-
-            # Android 12 - 5.10 fixes
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
-              # Fix for the 2024-11 branch: mmap.c calls vm_flags_clear(), but mm.h in that branch doesn't provide the helper
-              fix_missing_vm_flags_clear
-              fix_task_mmu_show_pad 209
-            fi
-
-            # Android 13 - 5.15 fixes
-            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
-              # Fix for the 2024-11 branch: mmap.c calls vm_flags_clear(), but mm.h in that branch doesn't provide the helper
-              fix_missing_vm_flags_clear
-              fix_task_mmu_show_pad 148 "2024-05"
-              # Fix for 5.15 LTS: task_mmu.c header hunk mismatch causes missing SUSFS macro declaration
-              if grep -q 'SUSFS_IS_INODE_SUS_MAP\|SUSFS_IS_INODE_OPEN_REDIRECT' ./fs/proc/task_mmu.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/proc/task_mmu.c; then
-                if grep -qF '#include <linux/pkeys.h>' ./fs/proc/task_mmu.c; then
-                  sed -i '/#include <linux\/pkeys.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/task_mmu.c
-                elif grep -qF '#include <linux/uaccess.h>' ./fs/proc/task_mmu.c; then
-                  sed -i '/#include <linux\/uaccess.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/task_mmu.c
-                else
-                  sed -i '0,/^#include /s//#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif\n&/' ./fs/proc/task_mmu.c
-                fi
-                echo "Fixed Android 13 5.15 task_mmu.c missing susfs_def.h"
-              fi
-              # Fix for 5.15 LTS: namespace.c header hunk mismatch causes missing SUSFS mount symbol declaration
-              fix_namespace_susfs_mount_decls "Android 13 5.15" 'DEFAULT_KSU_MNT_ID\|VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT\|CL_COPY_MNT_NS'
-            fi
-
-            # Android 14 - 6.1 fixes
-            if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
-              if grep -q 'susfs_is_current_proc_umounted\|SUSFS_IS_INODE_SUS_MAP\|SUSFS_IS_INODE_OPEN_REDIRECT' ./fs/proc/base.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/proc/base.c; then
-                if grep -qF '#include <linux/dma-buf.h>' ./fs/proc/base.c; then
-                  sed -i '/#include <linux\/dma-buf.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/base.c
-                else
-                  sed -i '/#include <linux\/cpufreq_times.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/base.c
-                fi
-              fi
-              fix_task_mmu_show_pad 75 "2024-05"
-              # Fix for 6.1 LTS: namespace.c header hunk mismatch causes missing SUSFS mount symbol declaration
-              fix_namespace_susfs_mount_decls "Android 14 6.1" 'DEFAULT_KSU_MNT_ID\|susfs_mnt_id_ida'
-            fi
-
-            # Android 15 - 6.6 fixes
-            if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
-              # Fix for 6.6.50~6.6.97: fs/proc/base.c header hunk mismatch causes susfs_def.h to be missed
-              if grep -q 'AS_FLAGS_SUS_MAP\|susfs_is_current_proc_umounted\|SUSFS_IS_INODE_SUS_MAP\|SUSFS_IS_INODE_OPEN_REDIRECT' ./fs/proc/base.c && ! grep -qF 'susfs_def.h' ./fs/proc/base.c; then
-                if ! grep -qF '#include <linux/dma-buf.h>' ./fs/proc/base.c; then
-                  sed -i '/#include <linux\/cpufreq_times.h>/a #include <linux\/dma-buf.h>' ./fs/proc/base.c
-                fi
-                sed -i '/#include <linux\/dma-buf.h>/a #endif' ./fs/proc/base.c
-                sed -i '/#include <linux\/dma-buf.h>/a #include <linux\/susfs_def.h>' ./fs/proc/base.c
-                sed -i '/#include <linux\/dma-buf.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' ./fs/proc/base.c
-              fi
-              # Fix for early 6.6 branches: memory.c header context is missing zswap.h, causing the SUSFS header hunk to be missed
-              if grep -q 'SUSFS_IS_INODE_SUS_MAP' ./mm/memory.c && ! grep -qF '#include <linux/susfs_def.h>' ./mm/memory.c; then
-                if grep -qF '#include <linux/zswap.h>' ./mm/memory.c; then
-                  sed -i '/#include <linux\/zswap.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MAP\n#include <linux\/susfs_def.h>\n#endif' ./mm/memory.c
-                else
-                  sed -i '/#include <linux\/sched\/sysctl.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MAP\n#include <linux\/susfs_def.h>\n#endif' ./mm/memory.c
-                fi
-              fi
-              # Fix for legacy SukiSU 6.6.50~6.6.58: task_mmu.c uses vma after SUSFS is applied, but the old source has no matching declaration
-              if [[ -n "$LEGACY_SUKISU_CONFIG" && "$CURRENT_SUB" -ge 50 && "$CURRENT_SUB" -le 58 ]] \
-                && grep -qF 'vma = find_vma(mm, start_vaddr);' ./fs/proc/task_mmu.c; then
-                TASK_MMU_PATCH="$KERNEL_PATCHES/wild/archived/susfs_fix_patches/v2.1.0/a15-6.6/task_mmu.c.patch"
-                if [ ! -f "$TASK_MMU_PATCH" ]; then
-                  echo "::error::Patch not found: $TASK_MMU_PATCH"
-                  exit 1
-                fi
-                cp "$TASK_MMU_PATCH" ./
-                if patch -p1 --dry-run < task_mmu.c.patch >/dev/null 2>&1; then
-                  patch -p1 --no-backup-if-mismatch < task_mmu.c.patch
-                  echo "Applied Android 15 6.6.50~6.6.58 task_mmu.c archived fix patch"
-                else
-                  echo "Android 15 6.6.50~6.6.58 task_mmu.c archived fix patch already applied or context mismatch, skipping"
-                fi
-              fi
-
-            fi
-
-            # Android 16 - 6.12 fixes
-            if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-              # Fix duplicate definition in setuid_hook.c
-              SETUID_HOOK="$KERNEL_ROOT/common/drivers/kernelsu/setuid_hook.c"
-              if [ -f "$SETUID_HOOK" ]; then
-                sed -i 's/defined(CONFIG_KSU_MANUAL_HOOK))/!defined(CONFIG_KSU_SUSFS) \&\& defined(CONFIG_KSU_MANUAL_HOOK))/' "$SETUID_HOOK"
-                echo "Fixed duplicate definition issue in setuid_hook.c"
-              fi
-
-              # Fix for 6.12.58+: exec.c header context change causes the SUSFS patch to miss susfs_def.h
-              if grep -q 'susfs_is_current_proc_umounted' ./fs/exec.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/exec.c; then
-                if grep -qF '#include <linux/dma-buf.h>' ./fs/exec.c; then
-                  sed -i '/#include <linux\/dma-buf.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
-                else
-                  sed -i '/#include <linux\/ksm.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
-                fi
-                echo "Fixed exec.c missing susfs_def.h"
-              fi
-            fi
-          fi
-
-      # SUSFS 6.12 (gki-android16-6.12) calls security_{context_to_sid,
-      # sid_to_context,compute_av_user}_with_policy from the kernel as extern
-      # symbols. KernelSU forks keep them static (pershoot KernelSU-Next
-      # dev-susfs, SukiSU, ReSukiSU, ...); a static forward declaration gives
-      # the whole definition static linkage, so vmlinux fails to link with
-      # "undefined symbol". Official KernelSU applies 10_enable_susfs_for_ksu
-      # .patch which un-statics them; the other variants don't, so strip
-      # 'static' here. Separate step on purpose: the Apply SUSFS run command
-      # already sits at ~20k chars, near GitHub's 21000-char expression limit.
-      - name: Un-static KernelSU selinux helpers for SUSFS 6.12
-        if: inputs.enable_susfs && inputs.kernel_version == '6.12'
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          SELINUX_HIDE="common/drivers/kernelsu/feature/selinux_hide.c"
-          if [ -f "$SELINUX_HIDE" ]; then
-            sed -i 's/^static int security_context_to_sid_with_policy/int security_context_to_sid_with_policy/; s/^static int security_sid_to_context_with_policy/int security_sid_to_context_with_policy/; s/^static void security_compute_av_user_with_policy/void security_compute_av_user_with_policy/' "$SELINUX_HIDE"
-            echo "Un-static'd KernelSU selinux *_with_policy helpers"
-          fi
-
-      - name: Apply BBRv3 patch
-        if: inputs.use_bbrv3
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          echo "Applying BBRv3 TCP congestion control backport..."
-          if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-            PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android16-6.12.patch"
-            # fatalcoder524's 6.12 backport has one hunk that needs fuzz>0 on
-            # the latest 6.12 sublevels (context shifted by upstream changes).
-            PATCH_FUZZ=2
-          elif [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
-            PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch"
-            PATCH_FUZZ=0
-          elif [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
-            # Two variants cover the 5.10 matrix: deprecated 2025-02/2025-05
-            # branches (SUBLEVEL 233/236) need the 2025-06 context, while the
-            # 2025-09 (240) and lts (X) branches use the lts context.
-            case "${{ inputs.os_patch_level }}" in
-              "2025-02"|"2025-05"|"2025-06") PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android12-5.10-2025-06.patch" ;;
-              *) PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android12-5.10-lts.patch" ;;
-            esac
-            PATCH_FUZZ=0
-          else
-            echo "::warning::BBRv3 is only available for android16-6.12, android14-6.1 and android12-5.10 in this repo; skipping."
-            exit 0
-          fi
-
-          patch -p1 --fuzz=$PATCH_FUZZ < "$PATCH" || { echo "::error::BBRv3 patch failed to apply"; exit 1; }
-
-          # BBRv3 needs CONFIG_TCP_CONG_ADVANCED + CONFIG_TCP_CONG_BBR3 (same flags
-          # the upstream WildKernels bbrv3 action sets in gki_defconfig).
-          grep -q '^CONFIG_TCP_CONG_ADVANCED=' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_TCP_CONG_ADVANCED=.*/CONFIG_TCP_CONG_ADVANCED=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_TCP_CONG_ADVANCED=y' >> arch/arm64/configs/gki_defconfig
-          grep -q '^CONFIG_TCP_CONG_BBR3=' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_TCP_CONG_BBR3=.*/CONFIG_TCP_CONG_BBR3=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_TCP_CONG_BBR3=y' >> arch/arm64/configs/gki_defconfig
-          # Make BBR the default congestion control (BBRv3 stays selectable via
-          # sysctl net.ipv4.tcp_congestion_control). DEFAULT_BBR is a Kconfig
-          # choice entry that only exists 'if TCP_CONG_BBR=y'; older android16
-          # 6.12 branches (2025-06/07/09, sublevels 23/30/38) ship the GKI
-          # defconfig without CONFIG_TCP_CONG_BBR=y, so enable it first or the
-          # fragment gets a DEFAULT_BBR that olddefconfig silently drops and
-          # check_config.py fails with "actual '', expected 'y'".
-          grep -q '^CONFIG_TCP_CONG_BBR=y' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_TCP_CONG_BBR=.*/CONFIG_TCP_CONG_BBR=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_TCP_CONG_BBR=y' >> arch/arm64/configs/gki_defconfig
-          grep -q '^CONFIG_DEFAULT_BBR=' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_DEFAULT_BBR=.*/CONFIG_DEFAULT_BBR=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_DEFAULT_BBR=y' >> arch/arm64/configs/gki_defconfig
-          grep -q '^CONFIG_DEFAULT_TCP_CONG=' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> arch/arm64/configs/gki_defconfig
-
-          # Enabling TCP_CONG_ADVANCED also exposes the sibling congestion control
-          # algorithms (tcp_bic/htcp/westwood), which in the effective GKI config
-          # default to the CUBIC value (m) and get built as .ko. Kleaf/Bazel
-          # hard-fails the build when a module is built but not declared in the
-          # kernel_build module_outs list ("kernel modules are built but not
-          # copied"). In Kleaf the generated kernel_aarch64 target pulls its
-          # module_outs from get_gki_modules_list() in modules.bzl (there is no
-          # literal "module_outs = [" in BUILD.bazel for GKI targets), so the
-          # three modules must be declared there. Only do this when BBRv3 is
-          # enabled: listing a module that is not built also fails the build.
-          # This only applies to the 6.1 Kleaf layout; on 5.10 the module list
-          # lives in the build system differently (verified clean for 5.10).
-          if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
-            if grep -qF '"net/ipv4/tcp_bic.ko"' modules.bzl; then
-              echo "modules.bzl already declares BBRv3 TCP CC modules"
-            else
-              perl -0pi -e 's/(    "net\/ieee802154\/ieee802154_socket.ko",\n)/$1    "net\/ipv4\/tcp_bic.ko",\n    "net\/ipv4\/tcp_htcp.ko",\n    "net\/ipv4\/tcp_westwood.ko",\n/' modules.bzl
-              if grep -qF '"net/ipv4/tcp_bic.ko"' modules.bzl; then
-                echo "Declared tcp_bic/tcp_htcp/tcp_westwood in modules.bzl"
-              else
-                echo "::error::Failed to declare BBRv3 TCP CC modules in modules.bzl"
-                exit 1
-              fi
-            fi
-          fi
-
-          echo "BBRv3 enabled."
-
-      - name: Apply VPNHide Next patches
-        if: inputs.use_vpnhide
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          echo "Applying VPNHide Next (soranerai/vpnhide_next_backend) LSM-based VPN hiding..."
-          VERSION="${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-          APPLY="$GITHUB_WORKSPACE/.github/patches/vpnhide/scripts/apply.sh"
-          if [ ! -d "$GITHUB_WORKSPACE/.github/patches/vpnhide/versions/$VERSION" ]; then
-            echo "::error::VPNHide: no patch set for $VERSION in .github/patches/vpnhide/versions/ (supported: $(ls $GITHUB_WORKSPACE/.github/patches/vpnhide/versions/))"
-            exit 1
-          fi
-          bash "$APPLY" "$PWD" "$VERSION" || { echo "::error::VPNHide apply.sh failed"; exit 1; }
-          grep -q '^CONFIG_VPNHIDE=y' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_VPNHIDE=.*/CONFIG_VPNHIDE=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_VPNHIDE=y' >> arch/arm64/configs/gki_defconfig
-          echo "VPNHide enabled."
-
-      - name: Apply NoMount patch
-        if: inputs.enable_nomount
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          echo "Applying NoMount (nomount) path redirection subsystem..."
-          # NoMount v12 is self-contained (fs/nomount/, key-based add_key
-          # transport): it no longer edits fs/*.c, so SUSFS and NoMount can be
-          # applied together (SUSFS adds its own fs/*.c hooks). Runtime
-          # interaction is untested -- both act on the VFS layer.
-          # NoMount integration is done via anchor-based sed (not a context
-          # patch): SUSFS also inserts into fs/Makefile's obj-y block before
-          # us, which shifts the patch context and breaks fuzz=0. Anchoring on
-          # stable lines (obj-$(CONFIG_PROC_FS) += proc_namespace.o, config
-          # IO_WQ + bool) works regardless of what SUSFS already added.
-          grep -q 'CONFIG_NOMOUNT' fs/Makefile || sed -i '/obj-\$(CONFIG_PROC_FS)\t\t+= proc_namespace.o/i\obj-\$(CONFIG_NOMOUNT) += nomount/\' fs/Makefile
-          grep -q 'fs/nomount/Kconfig' fs/Kconfig || perl -0pi -e 's/^(config IO_WQ\n\tbool)\n/$1\nsource "fs\/nomount\/Kconfig"\n/m' fs/Kconfig
-          mkdir -p ./fs/nomount
-          NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
-          # master = hookless base (stable), dev = CI/nightly. hookless is the
-          # default; ci tracks upstream dev for newer builds.
-          case "${{ inputs.nomount_variant }}" in
-            "ci")
-              NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
-              NOMOUNT_BRANCH="dev"
-              ;;
-            *)
-              NOMOUNT_BRANCH="master"
-              ;;
-          esac
-          # Fetch the current driver from the upstream repo so we don't have to
-          # re-bump the bundled copy on every upstream release. Fall back to the
-          # local snapshot if the network fetch fails.
-          if curl -fsSL --retry 3 --retry-delay 2 \
-               "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/nomount.c" \
-               -o ./fs/nomount/nomount.c; then
-            echo "Fetched nomount.c from maxsteeel/nomount@$NOMOUNT_BRANCH"
-            curl -fsSL --retry 3 --retry-delay 2 \
-              "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/nomount.h" \
-              -o ./fs/nomount/nomount.h
-            curl -fsSL --retry 3 --retry-delay 2 \
-              "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/Kconfig" \
-              -o ./fs/nomount/Kconfig
-            curl -fsSL --retry 3 --retry-delay 2 \
-              "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/Makefile" \
-              -o ./fs/nomount/Makefile
-            echo "NoMount driver fetched from upstream ($NOMOUNT_BRANCH)."
-          else
-            echo "::warning::Failed to fetch NoMount driver from upstream, using bundled snapshot."
-            cp $NOMOUNT_SRC/nomount.c ./fs/nomount/
-            cp $NOMOUNT_SRC/nomount.h ./fs/nomount/
-            cp $NOMOUNT_SRC/Kconfig ./fs/nomount/
-            cp $NOMOUNT_SRC/Makefile ./fs/nomount/
-          fi
-          # Do NOT append CONFIG_NOMOUNT=y / CONFIG_KEYS=y to gki_defconfig:
-          # NOMOUNT is tristate "default y" and KEYS is already enabled by
-          # default in the stock .config, so `make savedefconfig` omits both
-          # from its output. Any defconfig/fragment line that savedefconfig
-          # drops fails the kernel_aarch64_config trim check with
-          # "savedefconfig does not match gki_defconfig".
-          echo "NoMount enabled."
-
-      - name: Apply binder async free race defensive fix
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          echo "Applying binder async free race defensive fix..."
-          # Replaces BUG_ON(!has_async_transaction) in binder_free_buf with
-          # a defensive check. Prevents kernel panic triggered by HMA-OSS
-          # (or any heavy oneway binder traffic) hitting the async transaction
-          # accounting race. Unfixed upstream in all android* branches.
-          case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
-            android12-5.10) PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android12-5.10.patch" ;;
-            android13-5.15) PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android13-5.15.patch" ;;
-            android14-6.1)  PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive.patch" ;;
-            android15-6.6)  PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android15-6.6.patch" ;;
-            android16-6.12) PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android16-6.12.patch" ;;
-            *)
-              echo "::warning::binder async free race fix has no port for ${{ inputs.android_version }}-${{ inputs.kernel_version }}; skipping."
-              exit 0
-              ;;
-          esac
-          patch -p1 --fuzz=0 < "$PATCH" || { echo "::error::binder async free race fix failed to apply"; exit 1; }
-          echo "Binder async race fix applied."
-
-      - name: Clone Droidspaces patch repository
-        if: inputs.droidspaces != 'off'
-        run: |
-          git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git /tmp/Droidspaces-OSS
-          echo "DROIDSPACES_PATCHES=/tmp/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI" >> $GITHUB_ENV
-
-      - name: Integrate Droidspaces support
-        if: inputs.droidspaces != 'off'
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          KERNEL_VER="${{ inputs.kernel_version }}"
-          SLOT="${{ inputs.droidspaces }}"
-
-          # 678 -> 6_7_8, 123 -> 1_2_3, 345 -> 3_4_5
-          SLOT_NAME=$(echo "$SLOT" | sed 's/\(.\)/\1_/g; s/_$//')
-          echo "Applying Droidspaces SYSVIPC kABI fix patch (slot: $SLOT / $SLOT_NAME)..."
-          case "$KERNEL_VER" in
-            6.12)
-              PATCH_FILE="$DROIDSPACES_PATCHES/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
-              ;;
-            5.10|5.15|6.1|6.6)
-              PATCH_FILE="$DROIDSPACES_PATCHES/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_${SLOT_NAME}.patch"
-              ;;
-            *)
-              echo "::warning::Droidspaces: unsupported kernel version $KERNEL_VER, skipping patch"
-              exit 0
-              ;;
-          esac
-          if ! patch -p1 --forward < "$PATCH_FILE"; then
-            echo "::warning::SYSVIPC kABI patch failed to apply, may already be applied or context mismatch"
-          fi
-
-          # 5.10 and below also need the POSIX_MQUEUE kABI fix
-          if [ "$KERNEL_VER" = "5.10" ]; then
-            echo "Applying Droidspaces POSIX_MQUEUE kABI fix patch (5.10)..."
-            POSIX_PATCH="$DROIDSPACES_PATCHES/below-kernel-6.12/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch"
-            if ! patch -p1 --forward < "$POSIX_PATCH"; then
-              echo "::warning::POSIX_MQUEUE kABI patch failed to apply, may already be applied or context mismatch"
-            fi
-          fi
-
-          # After enabling IPC_NS, Android 16 / 6.12's rust_binder.ko references
-          # init_ipc_ns and put_ipc_ns, but the current AOSP common branch doesn't export these symbols yet.
-          # Add the exports here to avoid modpost failing on undefined symbols.
-          if [ "$KERNEL_VER" = "6.12" ]; then
-            if [ -f "ipc/msgutil.c" ] && ! grep -qF 'EXPORT_SYMBOL(init_ipc_ns);' "ipc/msgutil.c"; then
-              sed -i '/^struct msg_msgseg {/i EXPORT_SYMBOL(init_ipc_ns);' "ipc/msgutil.c"
-              echo "Added symbol export for init_ipc_ns"
-            fi
-
-            if [ -f "ipc/namespace.c" ] && ! grep -qF 'EXPORT_SYMBOL(put_ipc_ns);' "ipc/namespace.c"; then
-              sed -i '/^static struct ns_common \*ipcns_get(/i EXPORT_SYMBOL(put_ipc_ns);' "ipc/namespace.c"
-              echo "Added symbol export for put_ipc_ns"
-            fi
-          fi
-
-          echo "Adding Droidspaces kernel config..."
-          # Process per the docs, one by one: skip if already enabled, replace if "# not set", append if absent
-          enable_config() {
-            local cfg="$1"
-            if grep -q "^${cfg}=y" "$DEFCONFIG"; then
-              echo "  Already enabled: $cfg"
-            elif grep -q "^# ${cfg} is not set" "$DEFCONFIG"; then
-              sed -i "s/^# ${cfg} is not set$/${cfg}=y/" "$DEFCONFIG"
-              echo "  Switched: $cfg"
-            else
-              echo "${cfg}=y" >> "$DEFCONFIG"
-              echo "  Added: $cfg"
-            fi
-          }
-
-          config_defined() {
-            local name="${1#CONFIG_}"
-            grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" .
-          }
-
-          enable_config_if_defined() {
-            local cfg="$1"
-            if config_defined "$cfg"; then
-              enable_config "$cfg"
-            else
-              echo "  Not defined in current kernel: $cfg, skipping"
-            fi
-          }
-
-          # Required configuration
-          enable_config CONFIG_SYSVIPC
-          enable_config CONFIG_POSIX_MQUEUE
-          enable_config CONFIG_IPC_NS
-          enable_config CONFIG_PID_NS
-          enable_config CONFIG_DEVTMPFS
-
-          # Optional: network-related config (Docker/NAT mode)
-          enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
-          enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_LOG
-          enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_RECENT
-          enable_config_if_defined CONFIG_IP_SET
-          enable_config_if_defined CONFIG_IP_SET_HASH_IP
-          enable_config_if_defined CONFIG_IP_SET_HASH_NET
-          enable_config_if_defined CONFIG_NETFILTER_XT_SET
-
-          # The REJECT target symbol name may differ across kernel versions; enable whichever config actually exists
-          enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_REJECT
-          enable_config_if_defined CONFIG_IP_NF_TARGET_REJECT
-
-          echo "Droidspaces integration complete"
-
-          echo "GKI 6.6 regular-user networking config (Droidspaces)"
-          # Specifically handle =n-type configs (Android network permission must be off)
-          disable_config() {
-            local cfg="$1"
-            if grep -q "^${cfg}=n" "$DEFCONFIG"; then
-              echo "  Already disabled: $cfg"
-            elif grep -q "^${cfg}=y" "$DEFCONFIG"; then
-              sed -i "s/^${cfg}=y$/${cfg}=n/" "$DEFCONFIG"
-              echo "  Turned off: $cfg"
-            else
-              echo "# ${cfg} is not set" >> "$DEFCONFIG"
-              echo "  Added and disabled: $cfg"
-            fi
-          }
-
-          if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
-            # 1. User namespace: stay DISABLED (2.5.0 policy). Stock GKI ships it
-            # off; keeping it off avoids the /proc/self/uid_map root-detection
-            # vector (see soranerai/GKI_KernelSU_SUSFS#6). Droidspaces doesn't
-            # hard-require it for its NTSync/container core.
-            disable_config CONFIG_USER_NS
-            # 2. Disable Android strict network control (required)
-            disable_config CONFIG_ANDROID_PARANOID_NETWORK
-          fi
-
-      - name: Inject NTSync kernel config
-        if: inputs.droidspaces != 'off' && inputs.droidspaces_ntsync
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          set -e
-          echo "=== Starting NTSync kernel patch injection ==="
-          echo "Android version: ${{ inputs.android_version }}"
-          echo "Kernel version: ${{ inputs.kernel_version }}"
-
-          case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
-            android12-5.10)
-              NTSYNC_PATCH="ntsync_compat_android12-5.10"
-              ;;
-            android13-5.15)
-              NTSYNC_PATCH="ntsync_compat_android13-5.15"
-              ;;
-            android14-6.1)
-              NTSYNC_PATCH="ntsync_compat_android14-6.1"
-              ;;
-            android15-6.6)
-              NTSYNC_PATCH="ntsync_compat_android15-6.6"
-              ;;
-            android16-6.12)
-              NTSYNC_PATCH="ntsync_compat_android16-6.12"
-              ;;
-            *)
-              echo "::warning::NTSync: unsupported for ${{ inputs.android_version }} / ${{ inputs.kernel_version }}, skipping patch"
-              exit 0
-              ;;
-          esac
-
-          echo "Auto-selected NTSync patch: ${NTSYNC_PATCH}.patch"
-          wget -q "https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch"
-          wget -q "https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/${NTSYNC_PATCH}.patch"
-
-          if [ -f "drivers/misc/ntsync.c" ]; then
-            echo "::notice::NTSync already present in kernel tree (upstream backport), skipping patch"
-            # The in-tree NTSync is gated by 'depends on BROKEN' (unfinished
-            # feature); drop the dependency so CONFIG_NTSYNC=y below can
-            # actually take effect. Otherwise check_config.py fails with
-            # "CONFIG_NTSYNC: actual '', expected 'y' from ksu.fragment".
-            if [ "${{ inputs.kernel_version }}" = "6.12" ] && grep -q 'depends on BROKEN' drivers/misc/Kconfig; then
-              perl -0pi -e 's/(config NTSYNC\n\ttristate[^\n]*\n)\tdepends on BROKEN\n/$1/' drivers/misc/Kconfig
-              echo "  Dropped 'depends on BROKEN' from config NTSYNC"
-            fi
-          else
-            patch -p1 --forward < "ntsync_base.patch" || { echo "::error::NTSync base patch failed"; exit 1; }
-            patch -p1 --forward < "${NTSYNC_PATCH}.patch" || { echo "::error::NTSync ${NTSYNC_PATCH} patch failed"; exit 1; }
-          fi
-
-          cd ..
-
-          # Config path
-          CONFIG_PATH="./common/arch/arm64/configs/gki_defconfig"
-          echo "Checking and enabling CONFIG_NTSYNC..."
-
-          # Remove the "not set" marker, then append the enabled entry, keeping this idempotent on repeated runs.
-          sed -i '/CONFIG_NTSYNC is not set/d' "$CONFIG_PATH"
-          if ! grep -q "^CONFIG_NTSYNC=y" "$CONFIG_PATH"; then
-            echo "CONFIG_NTSYNC=y" >> "$CONFIG_PATH"
-            echo "✅ CONFIG_NTSYNC enabled successfully"
-          else
-            echo "✅ CONFIG_NTSYNC is already enabled"
-          fi
-
-          echo "=== NTSync patch and config injection complete ==="
-
-      - name: Apply Unicode bypass fix
-        if: inputs.enable_susfs
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          if [ "${{ inputs.kernel_version }}" = "5.10" ] || [ "${{ inputs.kernel_version }}" = "5.15" ]; then
-            patch -p1 --forward < "$ACTION_BUILD/patches/unicode_bypass_fix_6.1-.patch" || true
-          else
-            patch -p1 --forward < "$ACTION_BUILD/patches/unicode_bypass_fix_6.1+.patch" || true
-          fi
-
-      - name: Set up ZRAM LZ4 patch stack
-        if: inputs.use_zram
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
-            # 6.12: SukiSU_patch has no zram_patch/6.12 (last is 6.6), so the
-            # old stack below would copy lib/lz4 + lz4k sources but never apply
-            # the lz4kd/lz4k_oplus glue patches -- zram then references
-            # LZ4K/LZ4KD APIs that do not exist and the phone bootloops.
-            # zhou200830512/6.12 ships working 6.12 patches: LZ4 1.10 + NEON,
-            # ZSTD 1.5.7 and a full LZ4K/LZ4KD backport (crypto + zram
-            # backends + lib). Verified fuzz=0 on 6.12-2025-06 and 6.12-2026-06.
-            echo "6.12: applying LZ4 1.10 + LZ4KD + ZSTD 1.5.7 patches..."
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/zram/001-lz4.patch" || { echo "::error::zram 001-lz4.patch failed"; exit 1; }
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/zram/lz4kd.patch" || { echo "::error::zram lz4kd.patch failed"; exit 1; }
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/zram/002-zstd.patch" || { echo "::error::zram 002-zstd.patch failed"; exit 1; }
-            exit 0
-          fi
-
-          echo "Upgrading LZ4..."
-          rm -f lib/lz4/lz4_compress.c lib/lz4/lz4_decompress.c lib/lz4/lz4defs.h lib/lz4/lz4hc_compress.c
-
-          cp -r $ZZH_PATCHES/zram/lz4/* ./lib/lz4/
-          cp -r $ZZH_PATCHES/zram/include/linux/* ./include/linux/
-          bash $ZZH_PATCHES/zram/apply_lz4_neon.sh
-
-          if [ -f "fs/f2fs/Makefile" ] && ! grep -qF "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" "fs/f2fs/Makefile"; then
-            echo "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" >> "fs/f2fs/Makefile"
-          fi
-
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/include/linux/* ./include/linux/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/lib/* ./lib/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/crypto/* ./crypto/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k_oplus ./lib/
-
-          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4kd.patch ./
-          if ! patch -p1 -F 3 < lz4kd.patch; then
-            echo "::warning::lz4kd.patch failed to apply, may already be applied or context mismatch"
-          fi
-
-          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch ./
-          if ! patch -p1 -F 3 < lz4k_oplus.patch; then
-            echo "::warning::lz4k_oplus.patch failed to apply, may already be applied or context mismatch"
-          fi
-
-      - name: Fix 6.6 WiFi/Bluetooth compatibility (Samsung + Xiaomi)
-        if: inputs.kernel_version == '6.6'
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          ensure_line_once() {
-            local file="$1"
-            local line="$2"
-            if [ ! -f "$file" ]; then
-              echo "::error::File not found: $file"
-              exit 1
-            fi
-            if ! grep -qF "$line" "$file"; then
-              echo "$line" >> "$file"
-            fi
-          }
-
-          GALAXY_SYMBOL_LIST="android/abi_gki_aarch64_galaxy"
-          XIAOMI_SYMBOL_LIST="android/abi_gki_aarch64_xiaomi"
-          DRIVERS_MAKEFILE="drivers/Makefile"
-          MIN_KDP_SRC="$KERNEL_PATCHES/samsung/min_kdp/min_kdp.c"
-          MIN_KDP_PATCH="$KERNEL_PATCHES/samsung/min_kdp/add-min_kdp-symbols.patch"
-          MIN_KDP_DST="drivers/min_kdp.c"
-
-          ensure_line_once "$GALAXY_SYMBOL_LIST" "kdp_set_cred_non_rcu"
-          ensure_line_once "$GALAXY_SYMBOL_LIST" "kdp_usecount_dec_and_test"
-          ensure_line_once "$GALAXY_SYMBOL_LIST" "kdp_usecount_inc"
-
-          if [ ! -f "$MIN_KDP_PATCH" ]; then
-            echo "::error::Patch not found: $MIN_KDP_PATCH"
-            exit 1
-          fi
-          if patch -p1 --dry-run < "$MIN_KDP_PATCH" >/dev/null 2>&1; then
-            patch -p1 --no-backup-if-mismatch < "$MIN_KDP_PATCH"
-          else
-            echo "min_kdp symbols patch already applied or context mismatch, skipping."
-          fi
-
-          if [ ! -f "$MIN_KDP_SRC" ]; then
-            echo "::error::File not found: $MIN_KDP_SRC"
-            exit 1
-          fi
-          cp "$MIN_KDP_SRC" "$MIN_KDP_DST"
-          ensure_line_once "$DRIVERS_MAKEFILE" "obj-y += min_kdp.o"
-
-          ensure_line_once "$XIAOMI_SYMBOL_LIST" "device_find_any_child"
-
-      - name: Configure ZRAM options
-        if: inputs.use_zram
-        run: |
-          CONFIG_FILE="$DEFCONFIG"
-
-          if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
-            cat >> "$CONFIG_FILE" <<'EOF'
-          CONFIG_ZSMALLOC=y
-          CONFIG_ZRAM=y
-          CONFIG_MODULE_SIG=n
-          CONFIG_CRYPTO_LZO=y
-          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-          EOF
-          fi
-
-          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
-            if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
-              sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
-            else
-              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-            fi
-            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
-          fi
-
-          if [ "${{ inputs.kernel_version }}" = "6.6" ]; then
-            echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
-          fi
-
-          if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
-            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$KERNEL_ROOT/common/modules.bzl"
-          fi
-
-          if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
-            if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
-              # lz4kd.patch (6.12) has no LZ4K_OPLUS backend; the SukiSU stack
-              # that provides it stops at 6.6. Leaving CONFIG_CRYPTO_LZ4K_OPLUS
-              # in the fragment would fail check_config.py (unknown symbol).
-              # 6.12 zram uses the ZRAM_BACKEND_* model, so also enable the
-              # LZ4K/LZ4KD/842 backends (crypto sides come from zram.config).
-              grep -v 'CONFIG_CRYPTO_LZ4K_OPLUS' "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
-              {
-                echo "CONFIG_ZRAM_BACKEND_LZ4HC=y"
-                echo "CONFIG_ZRAM_BACKEND_LZ4K=y"
-                echo "CONFIG_ZRAM_BACKEND_LZ4KD=y"
-                echo "CONFIG_ZRAM_BACKEND_842=y"
-              } >> "$CONFIG_FILE"
-            else
-              cat "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
-            fi
-          fi
-
-      - name: Add BBG (Baseband Guard) anti-brick patch
-        if: inputs.use_bbg
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
-          echo "CONFIG_BBG=y" >> common/arch/arm64/configs/gki_defconfig
-          sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' common/security/Kconfig
-
-      - name: Apply Re-Kernel
-        if: inputs.use_rekernel
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          set -e
-          echo "Integrating Re-Kernel..."
-          TMP_REKERNEL=/tmp/rekernel
-          rm -rf "$TMP_REKERNEL"
-          git clone --depth 1 https://github.com/Sakion-Team/Re-Kernel.git "$TMP_REKERNEL"
-
-          # Sync the full upstream driver source (upstream split this into six .c
-          # files + rekernel_internal.h a while back). Copy the whole LKM-Source
-          # directory wholesale instead of naming individual files by hand -- that
-          # way a future upstream file rename/addition doesn't silently break this
-          # step again the way the old single-rekernel.c assumption did.
-          rm -rf common/drivers/rekernel
-          mkdir -p common/drivers/rekernel
-          cp -a "$TMP_REKERNEL/LKM-Source/." common/drivers/rekernel/
-
-          # Adapt upstream's own out-of-tree module config into an in-tree driver,
-          # by patching their shipped Makefile/Kconfig instead of overwriting them.
-          REKERNEL_MAKEFILE="common/drivers/rekernel/Makefile"
-          sed -i 's/^obj-m := rekernel\.o$/obj-$(CONFIG_REKERNEL) += rekernel.o/' "$REKERNEL_MAKEFILE"
-          grep -qF 'ccflags-$(CONFIG_REKERNEL_LEGACY_NETLINK) += -DLEGACY_NETLINK' "$REKERNEL_MAKEFILE" || \
-            echo 'ccflags-$(CONFIG_REKERNEL_LEGACY_NETLINK) += -DLEGACY_NETLINK' >> "$REKERNEL_MAKEFILE"
-          sed -i '/^[[:space:]]*depends on MODULES[[:space:]]*$/d' common/drivers/rekernel/Kconfig
-
-          # Hook into the drivers tree
-          if ! grep -qF 'source "drivers/rekernel/Kconfig"' common/drivers/Kconfig; then
-            sed -i '/^endmenu$/i source "drivers/rekernel/Kconfig"' common/drivers/Kconfig
-          fi
-          if ! grep -qF 'obj-$(CONFIG_REKERNEL) += rekernel/' common/drivers/Makefile; then
-            echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> common/drivers/Makefile
-          fi
-
-          # Fix header include path (for in-tree build)
-          sed -i 's|#include <../android/binder_internal.h>|#include "../android/binder_internal.h"|g' common/drivers/rekernel/rekernel_binder.c
-          # Add the seq_file.h include that rekernel_binder.c's DEFINE_SHOW_ATTRIBUTE
-          # usage needs on 5.10, if it's not already there
-          grep -qF '#include <linux/seq_file.h>' common/drivers/rekernel/rekernel_binder.c || \
-            sed -i '/#include <linux\/kprobes.h>/a #include <linux/seq_file.h>' common/drivers/rekernel/rekernel_binder.c
-
-          # Configure defconfig (idempotent)
-          grep -q '^CONFIG_REKERNEL=y$' "$DEFCONFIG" || echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
-          grep -q '^CONFIG_REKERNEL_NETWORK=y$' "$DEFCONFIG" || echo "CONFIG_REKERNEL_NETWORK=y" >> "$DEFCONFIG"
-
-      - name: Configure kernel options
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          cat >> "$DEFCONFIG" << 'EOF'
-          CONFIG_KSU=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          EOF
-
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
-            if [[ "${{ inputs.use_kpm }}" == enabled* ]] || [[ "${{ inputs.use_kpm }}" == patched* ]]; then
-              if ! grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
-                echo "Error: KPM was requested, but the current KernelSU source doesn't declare CONFIG_KPM" >&2
-                exit 1
-              fi
-              echo "CONFIG_KPM=y" >> "$DEFCONFIG"
-            fi
-          fi
-
-          CURRENT_SUB="${{ inputs.sub_level }}"
-          if [[ ! "$CURRENT_SUB" =~ ^[0-9]+$ ]]; then
-            CURRENT_SUB=99999
-          fi
-          if [[ "${{ inputs.ksu_variant }}" == "ReSukiSU" && "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "$CURRENT_SUB" -ge 74 && "$CURRENT_SUB" -le 137 ]]; then
-            {
-              echo "CONFIG_KALLSYMS=y"
-              echo "CONFIG_KALLSYMS_ALL=y"
-            } >> "$DEFCONFIG"
-            # Fix for 5.15.74~5.15.137: kallsyms_on_each_symbol is only compiled under LIVEPATCH, causing ReSukiSU link failures
-            KALLSYMS_C="./common/kernel/kallsyms.c"
-            if [ -f "$KALLSYMS_C" ] \
-              && grep -qF 'int kallsyms_on_each_symbol' "$KALLSYMS_C" \
-              && grep -qF '#endif /* CONFIG_LIVEPATCH */' "$KALLSYMS_C"; then
-              sed -i '/^#ifdef CONFIG_LIVEPATCH$/,/^int kallsyms_on_each_symbol/ { /^#ifdef CONFIG_LIVEPATCH$/d }' "$KALLSYMS_C"
-              sed -i '/^int kallsyms_on_each_symbol/,/^#endif \/\* CONFIG_LIVEPATCH \*\// { /^#endif \/\* CONFIG_LIVEPATCH \*\//d }' "$KALLSYMS_C"
-              echo "Fixed the LIVEPATCH compile restriction on kallsyms_on_each_symbol"
-            fi
-          fi
-
-          sed -i 's/check_defconfig//' ./common/build.config.gki
-
-      - name: Add SUSFS config
-        if: inputs.enable_susfs
-        run: |
-          cat >> "$DEFCONFIG" << 'EOF'
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
-          EOF
-
-      - name: Configure kernel name
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          if [ -f "build/build.sh" ]; then
-            sed -i 's/-dirty//' ./common/scripts/setlocalversion
-          else
-            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
-            sed -i '/kmi_symbol_list_strict_mode/d' ./common/BUILD.bazel
-            rm -rf ./common/android/abi_gki_protected_exports_*
-            # 6.12+ (bazel-only) defines module protection via modules.bzl
-            # (protected_modules) and the protected_module_names_list attribute
-            # in BUILD.bazel. Stock vendor WiFi/Bluetooth drivers (wlan.ko,
-            # bluetooth.ko, ...) are GKI "protected modules": they load only if
-            # signed with Google's key. A custom kernel cannot sign them, so
-            # they get rejected and WiFi/BT stay dead. Clearing the protected
-            # list lets the stock modules load.
-            perl -pi -e 's/^protected_modules = \[.*\]/protected_modules = []/' ./common/modules.bzl
-            perl -pi -e 's/^\s*protected_module_names_list\s*=\s*":gki_(?:aarch64|x86_64)_protected_module_names",\s*$//;' ./common/BUILD.bazel
-            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-          fi
-
-          VERSION_INPUT=$(echo "${{ inputs.version }}" | tr -d '[:space:]')
-          if [ -n "$VERSION_INPUT" ]; then
-            CLEAN_VERSION=$(echo "$VERSION_INPUT" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+//')
-            perl -i -0777 -pe 's/(.*)echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}"/$1echo "\$\{KERNELVERSION\}'"${CLEAN_VERSION}"'"/s' ./common/scripts/setlocalversion 2>/dev/null || true
-            sed -i "\$s|echo \"\$res\"|echo \"${CLEAN_VERSION}\"|" ./common/scripts/setlocalversion 2>/dev/null || true
-            sed -i '/^CONFIG_LOCALVERSION=/ s/="\([^"]*\)"/="'"$CLEAN_VERSION"'"/' ./common/arch/arm64/configs/gki_defconfig
-          elif [ ! -f "build/build.sh" ]; then
-            cd ./common
-            BID="ab$((RANDOM % 90000000 + 10000000))"
-            GHASH=$(git rev-parse --verify HEAD | cut -c1-13)
-            case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
-              "android14-6.1")  KMI_TAG="android14-11" ;;
-              "android15-6.6")  KMI_TAG="android15-8" ;;
-              "android16-6.12") KMI_TAG="android16-5" ;;
-              *) KMI_TAG="${{ inputs.android_version }}" ;;
-            esac
-
-            if [ "${{ inputs.kernel_version }}" = "6.1" ]; then
-              KMI_LOCAL="-${KMI_TAG}-g${GHASH}-${BID}-4k"
-              sed -i "\$s|echo \"\$res\"|echo \"${KMI_LOCAL}\"|" ./scripts/setlocalversion 2>/dev/null || true
-              sed -i "/^CONFIG_LOCALVERSION=/ s/=\"[^\"]*\"/=\"${KMI_LOCAL}\"/" ./arch/arm64/configs/gki_defconfig 2>/dev/null || true
-            else
-              SUFFIX="-${KMI_TAG}-g${GHASH}-${BID}"
-              perl -i -0777 -pe 's/(.*)echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}"/$1echo "\$\{KERNELVERSION\}'"${SUFFIX}"'\$\{config_localversion\}"/s' ./scripts/setlocalversion 2>/dev/null || true
-            fi
-          fi
-
-      - name: Set custom build time
-        shell: bash
-        env:
-          INPUT_TIME: ${{ inputs.build_time }}
-        run: |
-          set -euo pipefail
-
-          if [[ -n "$INPUT_TIME" && "$INPUT_TIME" != "N" && "$INPUT_TIME" != "n" ]]; then
-            TIME_REGEX='^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] UTC [0-9]{4}$'
-            if [[ ! "$INPUT_TIME" =~ $TIME_REGEX ]]; then
-              echo "::warning title=Invalid build time format::Custom build time must look like 'Sun Dec 01 08:10:00 UTC 2024' -- remove any extra prefix and use a two-digit day."
-              exit 1
-            fi
-
-            NORMALIZED_TIME="$(LC_ALL=C TZ=UTC date -u -d "$INPUT_TIME" +'%a %b %d %T UTC %Y' 2>/dev/null || true)"
-            if [[ "$NORMALIZED_TIME" != "$INPUT_TIME" ]]; then
-              echo "::warning title=Invalid build time::Custom build time could not be parsed as a real UTC time, or the weekday does not match the date."
-              exit 1
-            fi
-
-            DATESTR="$INPUT_TIME"
-          else
-            DATESTR="$(TZ='UTC' date +'%a %b %d %T %Z %Y')"
-          fi
-
-          echo "Using build time: $DATESTR"
-          echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> "$GITHUB_ENV"
-          echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
-
-          # Handle the mkcompile_h patch uniformly
-          f="$KERNEL_ROOT/common/scripts/mkcompile_h"
-          if [ -f "$f" ]; then
-            if [[ "${{ inputs.kernel_version }}" == "5.10" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
-              echo "Applying classic 5.x timestamp patch: $f"
-              perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
-            else
-              echo "Applying 6.x mkcompile_h patch: $f"
-              if grep -q 'UTS_VERSION=' "$f"; then
-                perl -pi -e "s{UTS_VERSION=\"\\\$\\\(.*?\\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
-              else
-                perl -0777 -pi -e "s{cat <<EOF}{cat <<EOF\n#undef UTS_VERSION\n#define UTS_VERSION \"#1 SMP PREEMPT $DATESTR\" } unless /UTS_VERSION/" "$f"
-              fi
-            fi
-          fi
-
-      - name: Build kernel
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 30
-          max_attempts: 3
-          retry_on: timeout
-          command: |
-            echo "Current KSU latest commit date: ${KSU_LATEST_COMMIT_DATE}"
-            echo "Current SUSFS latest commit date: ${SUSFS_LATEST_COMMIT_DATE}"
-            set -ex
-            cd "$KERNEL_ROOT"
-
-            sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-            sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
-            sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' ./common/build.config.gki.aarch64
-
-            if [ -f "build/build.sh" ]; then
-              LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
-              strings "out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" | grep 'Linux version'
-            else
-              # Extract gki_defconfig changes into a fragment, to avoid bazel trim check failures
-              FRAG="common/arch/arm64/configs/ksu.fragment"
-              diff "$DEFCONFIG.orig" "$DEFCONFIG" | grep '^>' | sed 's/^> //; s/^[[:space:]]*//' > "$FRAG" || true
-              cp "$DEFCONFIG.orig" "$DEFCONFIG"
-              echo "=== KSU fragment contents ==="
-              cat "$FRAG"
-              echo "========================="
-              FRAG_FLAG=""
-              if [ -s "$FRAG" ]; then
-                FRAG_FLAG="--defconfig_fragment=//common:arch/arm64/configs/ksu.fragment"
-              fi
-              LTO_FLAG="--lto=thin"
-              if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
-                LTO_FLAG="--lto=none"
-              fi
-              tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG //common:kernel_aarch64_dist || exit 1
-              strings ./bazel-bin/common/kernel_aarch64/Image | grep 'Linux version'
-            fi
-
-            echo "Current KSU latest commit date: ${KSU_LATEST_COMMIT_DATE}"
-            echo "Current SUSFS latest commit date: ${SUSFS_LATEST_COMMIT_DATE}"
-            echo "If the dates differ or are too far apart, the patch is stale and the build will fail"
-
-      # - name: Apply KPM patch (SukiSU/ReSukiSU/Next)
-      #   if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
-      #   run: |
-      #     case "${{ inputs.android_version }}" in
-      #       "android12"|"android13")
-      #         if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
-      #           TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-      #         fi
-      #         ;;
-      #       "android14"|"android15"|"android16")
-      #         TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
-      #         ;;
-      #     esac
-
-      #     cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
-      #     cd "$TARGET_PATH"
-      #     chmod 777 patch
-      #     ./patch
-      #     rm -rf Image
-      #     mv oImage Image
-
-      - name: Prepare boot image
-        run: |
-          mkdir -p bootimgs
-
-          if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
-            SRC_DIR="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-          else
-            SRC_DIR="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
-          fi
-
-          cp "$SRC_DIR/Image" ./bootimgs/
-          cp "$SRC_DIR/Image.lz4" ./bootimgs/
-          cp "$SRC_DIR/Image" ./
-          cp "$SRC_DIR/Image.lz4" ./
-          gzip -n -k -f -9 ./Image > ./Image.gz
-
-      - name: Create AnyKernel3 archive
-        if: inputs.artifact_upload_mode == 'Upload all'
-        run: |
-          cd "$ANYKERNEL3"
-          ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
-          mv ../Image ./Image
-          zip -r "../$ZIP_NAME" ./*
-
-      - name: Prepare AnyKernel3 directory
-        if: inputs.artifact_upload_mode != 'Upload all'
-        run: |
-          mv ./Image "$ANYKERNEL3/Image"
-
-      - name: Build boot image (Android 12)
-        if: inputs.android_version == 'android12'
-        working-directory: bootimgs
-        run: |
-          GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-${{ inputs.os_patch_level }}_${{ inputs.revision }}.zip
-          FALLBACK_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
-
-          status=$(curl -sL -w "%{http_code}" "$GKI_URL" -o /dev/null)
-          if [ "$status" = "200" ]; then
-            curl -Lo gki-kernel.zip "$GKI_URL"
-          else
-            curl -Lo gki-kernel.zip "$FALLBACK_URL"
-          fi
-
-          unzip gki-kernel.zip && rm gki-kernel.zip
-          $UNPACK_BOOTIMG --boot_img="$(pwd)/boot-5.10.img"
-
-          gzip -n -k -f -9 ./Image > ./Image.gz
-
-          $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
-
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
-
-          $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
-
-      - name: Build boot image (Android 13+)
-        if: inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' || inputs.android_version == 'android16'
-        working-directory: bootimgs
-        run: |
-          gzip -n -k -f -9 ./Image > ./Image.gz
-
-          $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
-
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
-
-          $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
-
-      - name: Collect patch reject files
-        if: always()
-        run: |
-          REJECTS_DIR="$GITHUB_WORKSPACE/patch-rejects"
-          mkdir -p "$REJECTS_DIR"
-
-          mapfile -t REJS < <(find "$KERNEL_ROOT" -type f -name '*.rej')
-          REJ_COUNT=${#REJS[@]}
-          echo "Found $REJ_COUNT .rej file(s)"
-          echo "REJ_COUNT=$REJ_COUNT" >> $GITHUB_ENV
-
-          if [ "$REJ_COUNT" -gt 0 ]; then
-            for REJ in "${REJS[@]}"; do
-              REL="${REJ#"$KERNEL_ROOT"/}"
-              DEST="$REJECTS_DIR/$REL"
-              mkdir -p "$(dirname "$DEST")"
-              cp "$REJ" "$DEST"
-
-              ORIG="${REJ%.rej}"
-              if [ -f "$ORIG" ]; then
-                cp "$ORIG" "${DEST%.rej}"
-              fi
-              echo "$REL" >> "$REJECTS_DIR/index.txt"
-            done
-          fi
-
-      - name: Upload AnyKernel3 flashable package
-        if: inputs.artifact_upload_mode != 'Upload all'
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-AnyKernel3
-          path: AnyKernel3/*
-          compression-level: 9
-
-      - name: Upload all build artifacts
-        if: inputs.artifact_upload_mode == 'Upload all'
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}
-          path: |
-            *AnyKernel3.zip
-            *.img
-          compression-level: 9
-
-      - name: Upload patch reject files
-        if: always() && env.REJ_COUNT > 0
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-Rejects
-          path: patch-rejects/
-          if-no-files-found: ignore
-          compression-level: 9
-
+  build-kernels-a14-6-1:
+    name: "6.1.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
+    if: inputs.kernel_source != 'Sultan (Pixel Tensor G4 / zumapro)' && inputs.kernel_source != 'Sultan (Pixel Tensor G4 / tegu)'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sub_level: "145"
+            os_patch_level: "2025-09"
+          - sub_level: "157"
+            os_patch_level: "2025-12"
+          - sub_level: "162"
+            os_patch_level: "2026-03"
+          - sub_level: "X"
+            os_patch_level: "lts"
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      android_version: "android14"
+      kernel_version: "6.1"
+      sub_level: ${{ matrix.sub_level }}
+      os_patch_level: ${{ matrix.os_patch_level }}
+      ksu_variant: ${{ inputs.kernelsu_variant }}
+      version: ${{ inputs.version || '' }}
+      build_time: ${{ inputs.build_time || '' }}
+      use_zram: ${{ inputs.use_zram }}
+      use_bbg: ${{ inputs.use_bbg }}
+      use_kpm: ${{ inputs.use_kpm }}
+      use_rekernel: ${{ inputs.use_rekernel || false }}
+      cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
+      supp_op: false
+      enable_susfs: ${{ inputs.susfs == 'enabled' }}
+      enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
+      nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
+      use_bbrv3: ${{ inputs.use_bbrv3 }}
+      use_vpnhide: ${{ inputs.use_vpnhide }}
+      droidspaces: ${{ inputs.droidspaces || 'off' }}
+      droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
+      artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
+
+  # Sultan kernel source (kerneltoast/android_kernel_google_tensynos), fixed to the
+  # zumapro codename -- that's the Tensor G4 (Pixel 9/9 Pro/9 Pro XL/9 Pro Fold) chip.
+  # Root manager choice reuses the same kernelsu_variant input as the Original build,
+  # but only "Next" (KernelSU-Next) is a combination actually verified against this
+  # device tree's hand-built compat patches -- see comments in sultan.yml.
+  build-sultan-kernel:
+    name: "Sultan-zumapro-${{ inputs.kernelsu_variant }}"
+    if: inputs.kernel_source == 'Sultan (Pixel Tensor G4 / zumapro)'
+    uses: ./.github/workflows/sultan.yml
+    secrets: inherit
+    with:
+      codename: "zumapro"
+      android_version: "android14"
+      kernel_version: "6.1"
+      ksu_variant: ${{ inputs.kernelsu_variant }}
+      use_bbg: ${{ inputs.use_bbg }}
+      droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_bbrv3: ${{ inputs.use_bbrv3 }}
+
+  # Pixel 9a (tegu): built from etnperlong's Sultan-based tegu port (6.1.157) via
+  # the same sultan.yml pipeline. tegu's vendor_kernel_boot dtb payload is the same
+  # set of base zumapro dtbs (the tegu-specific overlay lives in the untouched
+  # stock dtbo partition, selected by ro.boot.dtbo_idx), and anykernel.sh is sed'ed
+  # to the tegu device inside sultan.yml. The hand-built .github/patches/sultan/
+  # hooks are verified on 6.1.157 (fuzz=0): susfs clean, selinux-export clean,
+  # droidspaces uses the tegu-specific variant (sched.h + zumapro_defconfig only).
+  build-sultan-tegu-kernel:
+    name: "Sultan-tegu-${{ inputs.kernelsu_variant }}"
+    if: inputs.kernel_source == 'Sultan (Pixel Tensor G4 / tegu)'
+    uses: ./.github/workflows/sultan.yml
+    secrets: inherit
+    with:
+      codename: "tegu"
+      android_version: "android14"
+      kernel_version: "6.1"
+      ksu_variant: ${{ inputs.kernelsu_variant }}
+      use_bbg: ${{ inputs.use_bbg }}
+      droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_bbrv3: ${{ inputs.use_bbrv3 }}
+
+  # Only runs on direct trigger, skipped when called from main.yml.
+  # Runs for both Original and Sultan builds -- get-manager.yml handles the
+  # "Next" variant used by Sultan just as well as the others.
+  get-ksu-manager:
+    if: ${{ !inputs.called_from_main }}
+    uses: ./.github/workflows/get-manager.yml
+    secrets: inherit
+    with:
+      kernelsu_variant: ${{ inputs.kernelsu_variant }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide || false }}
