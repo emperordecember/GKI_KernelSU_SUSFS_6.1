@@ -1136,13 +1136,16 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           echo "Applying performance patches..."
+          # fuzz=2 (patch default): several of these target upstream code that
+          # drifted on android16-6.12 (e.g. optimized_mem_operations anchors on
+          # lib/string.c includes that moved); fuzz=0 rejects them.
           for P in optimized_mem_operations int_sqrt optimise_memcmp \
                    reduce_freeze_timeout add_timeout_wakelocks_globally \
                    reduce_gc_thread_sleep_time f2fs_enlarge_min_fsync_blocks \
                    increase_ext4_default_commit_age reduce_cache_pressure \
                    increase_sk_mem_packets file_struct_8bytes_align \
                    disable_cache_hot_buddy silence_system_logspam; do
-            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/performance/$P.patch" \
+            patch -p1 --fuzz=2 < "$GITHUB_WORKSPACE/.github/patches/performance/$P.patch" \
               || { echo "::error::performance $P.patch failed"; exit 1; }
           done
           echo "Performance patches applied."
