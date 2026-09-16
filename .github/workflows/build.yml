@@ -329,15 +329,6 @@ jobs:
           $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
           echo "REMOTE_BRANCH=$REMOTE_BRANCH" >> $GITHUB_ENV
 
-      # Snapshot the pristine stock defconfig BEFORE any step modifies it
-      # (force-disable ZRAM, VPNHide, NoMount, NTSync, SUSFS config, ...).
-      # Build kernel diffs this baseline against the final defconfig to
-      # produce the ksu.fragment; if the baseline is taken too late, earlier
-      # edits leak into the baseline, never reach the fragment, and bazel's
-      # savedefconfig trim check fails with "does not match gki_defconfig".
-      - name: Back up baseline defconfig
-        run: cp "$DEFCONFIG" "$DEFCONFIG.orig"
-
       - name: Apply stock config spoofing
         run: |
           STOCK_SRC="$GITHUB_WORKSPACE/config/stock_defconfig"
@@ -552,27 +543,30 @@ jobs:
       # setup.sh pins its own zram/zsmalloc config, "disabled" here would otherwise be a
       # no-op instead of an actual disable. So explicitly force it off whenever the user
       # asked for it to be off, regardless of which variant is selected.
-      #
-      # NOTE on HOW it is forced off: lines are DELETED, never rewritten to
-      # "# CONFIG_X is not set". `make savedefconfig` (kernel_aarch64_config trim
-      # check) omits any option whose value equals its Kconfig default, so "not set"
-      # lines in defconfig/fragment get dropped by savedefconfig and the build fails
-      # with "savedefconfig does not match gki_defconfig". Deleting the line lets the
-      # option fall back to its default (n for ZRAM and friends) -- which is exactly
-      # what savedefconfig outputs, so the check passes.
       - name: Force-disable ZRAM config when use_zram is off
         if: ${{ !inputs.use_zram }}
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
           echo "use_zram is disabled -- forcing ZRAM config off regardless of what the stock/base defconfig already sets..."
-          for CFG in CONFIG_ZRAM CONFIG_ZSMALLOC CONFIG_ZRAM_DEF_COMP_LZ4KD CONFIG_ZRAM_DEF_COMP_LZ4K CONFIG_CRYPTO_LZO CONFIG_ZRAM_BACKEND_LZ4 CONFIG_ZRAM_BACKEND_ZSTD CONFIG_ZRAM_BACKEND_LZO CONFIG_ZRAM_WRITEBACK CONFIG_ZRAM_MULTI_COMP CONFIG_ZRAM_ANDROID_IOCTL; do
-            if grep -q "^${CFG}=y$\|^${CFG}=m$" "$DEFCONFIG"; then
-              sed -i "/^${CFG}=y$/d; /^${CFG}=m$/d" "$DEFCONFIG"
-              echo "  Removed $CFG from defconfig"
-            elif grep -q "^# ${CFG} is not set$" "$DEFCONFIG"; then
+          # IMPORTANT: don't just replace an existing =y/=m line and stop there. The stock
+          # gki_defconfig (merged in later, at the bazel kernel_aarch64_config step) already
+          # ships CONFIG_ZRAM=m by default, and that line does NOT exist in our own
+          # $DEFCONFIG fragment at this point in the pipeline -- so a replace-only check finds
+          # nothing to replace and silently no-ops, leaving the stock CONFIG_ZRAM=m to win the
+          # merge. Always end up with an explicit "# CONFIG_X is not set" line in our fragment,
+          # appending it when no matching line is found, so it actually overrides the stock value.
+          for CFG in CONFIG_ZRAM CONFIG_ZSMALLOC CONFIG_ZRAM_DEF_COMP_LZ4KD CONFIG_ZRAM_DEF_COMP_LZ4K CONFIG_CRYPTO_LZO; do
+            if grep -q "^# ${CFG} is not set$" "$DEFCONFIG"; then
               echo "  Already disabled: $CFG"
+            elif grep -q "^${CFG}=y$" "$DEFCONFIG"; then
+              sed -i "s/^${CFG}=y$/# ${CFG} is not set/" "$DEFCONFIG"
+              echo "  Forced off: $CFG"
+            elif grep -q "^${CFG}=m$" "$DEFCONFIG"; then
+              sed -i "s/^${CFG}=m$/# ${CFG} is not set/" "$DEFCONFIG"
+              echo "  Forced off (was module): $CFG"
             else
-              echo "  $CFG absent (defaults to off)"
+              echo "# ${CFG} is not set" >> "$DEFCONFIG"
+              echo "  Added and disabled: $CFG"
             fi
           done
 
@@ -703,18 +697,6 @@ jobs:
             && ! grep -Rqs 'VMA_PAD_START' ./include/linux; then
             echo "目标内核未提供 VMA_PAD_START，使用 vma->vm_end 兼容 SUSFS OPEN_REDIRECT"
             sed -i 's/VMA_PAD_START(vma)/vma->vm_end/g' "$SUSFS_PATCH"
-          fi
-
-          # 6.12-2026-03+ (sublevel 69+) renamed vma_pages() to vma_data_pages() in
-          # fs/proc/task_mmu.c; the SUSFS SUS_MAP hunk anchors on
-          # 'if (!vma_pages(vma))' and gets rejected on those kernels.
-          # Rewrite the anchor to match the tree (vma_pages() itself still
-          # exists in include/linux/mm.h, so check task_mmu.c, not the headers).
-          if [[ "${{ inputs.kernel_version }}" == "6.12" ]] \
-            && grep -q 'if (!vma_pages(vma))' "$SUSFS_PATCH" \
-            && grep -q 'vma_data_pages' fs/proc/task_mmu.c; then
-            echo "6.12 kernel uses vma_data_pages(); adjusting SUSFS task_mmu.c context"
-            sed -i 's/if (!vma_pages(vma))/if (!vma_data_pages(vma))/g' "$SUSFS_PATCH"
           fi
 
           # Temporarily adjust source context before applying the main patch, replacing the archived wild micro-fixes
@@ -1004,38 +986,13 @@ jobs:
             fi
           fi
 
-      # SUSFS 6.12 (gki-android16-6.12) calls security_{context_to_sid,
-      # sid_to_context,compute_av_user}_with_policy from the kernel as extern
-      # symbols. KernelSU forks keep them static (pershoot KernelSU-Next
-      # dev-susfs, SukiSU, ReSukiSU, ...); a static forward declaration gives
-      # the whole definition static linkage, so vmlinux fails to link with
-      # "undefined symbol". Official KernelSU applies 10_enable_susfs_for_ksu
-      # .patch which un-statics them; the other variants don't, so strip
-      # 'static' here. Separate step on purpose: the Apply SUSFS run command
-      # already sits at ~20k chars, near GitHub's 21000-char expression limit.
-      - name: Un-static KernelSU selinux helpers for SUSFS 6.12
-        if: inputs.enable_susfs && inputs.kernel_version == '6.12'
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          SELINUX_HIDE="common/drivers/kernelsu/feature/selinux_hide.c"
-          if [ -f "$SELINUX_HIDE" ]; then
-            sed -i 's/^static int security_context_to_sid_with_policy/int security_context_to_sid_with_policy/; s/^static int security_sid_to_context_with_policy/int security_sid_to_context_with_policy/; s/^static void security_compute_av_user_with_policy/void security_compute_av_user_with_policy/' "$SELINUX_HIDE"
-            echo "Un-static'd KernelSU selinux *_with_policy helpers"
-          fi
-
       - name: Apply BBRv3 patch
         if: inputs.use_bbrv3
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           echo "Applying BBRv3 TCP congestion control backport..."
-          if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-            PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android16-6.12.patch"
-            # fatalcoder524's 6.12 backport has one hunk that needs fuzz>0 on
-            # the latest 6.12 sublevels (context shifted by upstream changes).
-            PATCH_FUZZ=2
-          elif [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
+          if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
             PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch"
-            PATCH_FUZZ=0
           elif [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
             # Two variants cover the 5.10 matrix: deprecated 2025-02/2025-05
             # branches (SUBLEVEL 233/236) need the 2025-06 context, while the
@@ -1044,13 +1001,12 @@ jobs:
               "2025-02"|"2025-05"|"2025-06") PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android12-5.10-2025-06.patch" ;;
               *) PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android12-5.10-lts.patch" ;;
             esac
-            PATCH_FUZZ=0
           else
-            echo "::warning::BBRv3 is only available for android16-6.12, android14-6.1 and android12-5.10 in this repo; skipping."
+            echo "::warning::BBRv3 is only available for android14-6.1 and android12-5.10 in this repo; skipping."
             exit 0
           fi
 
-          patch -p1 --fuzz=$PATCH_FUZZ < "$PATCH" || { echo "::error::BBRv3 patch failed to apply"; exit 1; }
+          patch -p1 --fuzz=0 < "$PATCH" || { echo "::error::BBRv3 patch failed to apply"; exit 1; }
 
           # BBRv3 needs CONFIG_TCP_CONG_ADVANCED + CONFIG_TCP_CONG_BBR3 (same flags
           # the upstream WildKernels bbrv3 action sets in gki_defconfig).
@@ -1060,22 +1016,6 @@ jobs:
           grep -q '^CONFIG_TCP_CONG_BBR3=' arch/arm64/configs/gki_defconfig \
             && sed -i 's/^CONFIG_TCP_CONG_BBR3=.*/CONFIG_TCP_CONG_BBR3=y/' arch/arm64/configs/gki_defconfig \
             || echo 'CONFIG_TCP_CONG_BBR3=y' >> arch/arm64/configs/gki_defconfig
-          # Make BBR the default congestion control (BBRv3 stays selectable via
-          # sysctl net.ipv4.tcp_congestion_control). DEFAULT_BBR is a Kconfig
-          # choice entry that only exists 'if TCP_CONG_BBR=y'; older android16
-          # 6.12 branches (2025-06/07/09, sublevels 23/30/38) ship the GKI
-          # defconfig without CONFIG_TCP_CONG_BBR=y, so enable it first or the
-          # fragment gets a DEFAULT_BBR that olddefconfig silently drops and
-          # check_config.py fails with "actual '', expected 'y'".
-          grep -q '^CONFIG_TCP_CONG_BBR=y' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_TCP_CONG_BBR=.*/CONFIG_TCP_CONG_BBR=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_TCP_CONG_BBR=y' >> arch/arm64/configs/gki_defconfig
-          grep -q '^CONFIG_DEFAULT_BBR=' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_DEFAULT_BBR=.*/CONFIG_DEFAULT_BBR=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_DEFAULT_BBR=y' >> arch/arm64/configs/gki_defconfig
-          grep -q '^CONFIG_DEFAULT_TCP_CONG=' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> arch/arm64/configs/gki_defconfig
 
           # Enabling TCP_CONG_ADVANCED also exposes the sibling congestion control
           # algorithms (tcp_bic/htcp/westwood), which in the effective GKI config
@@ -1134,10 +1074,10 @@ jobs:
           # NoMount integration is done via anchor-based sed (not a context
           # patch): SUSFS also inserts into fs/Makefile's obj-y block before
           # us, which shifts the patch context and breaks fuzz=0. Anchoring on
-          # stable lines (obj-$(CONFIG_PROC_FS) += proc_namespace.o, config
-          # IO_WQ + bool) works regardless of what SUSFS already added.
+          # stable lines (obj-$(CONFIG_BUFFER_HEAD), config IO_WQ + endmenu)
+          # works regardless of what SUSFS already added.
           grep -q 'CONFIG_NOMOUNT' fs/Makefile || sed -i '/obj-\$(CONFIG_PROC_FS)\t\t+= proc_namespace.o/i\obj-\$(CONFIG_NOMOUNT) += nomount/\' fs/Makefile
-          grep -q 'fs/nomount/Kconfig' fs/Kconfig || perl -0pi -e 's/^(config IO_WQ\n\tbool)\n/$1\nsource "fs\/nomount\/Kconfig"\n/m' fs/Kconfig
+          grep -q 'fs/nomount/Kconfig' fs/Kconfig || sed -i '/^config IO_WQ$/a\source "fs/nomount/Kconfig"' fs/Kconfig
           mkdir -p ./fs/nomount
           NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
           NOMOUNT_BRANCH="master"
@@ -1169,12 +1109,8 @@ jobs:
             cp $NOMOUNT_SRC/Kconfig ./fs/nomount/
             cp $NOMOUNT_SRC/Makefile ./fs/nomount/
           fi
-          # Do NOT append CONFIG_NOMOUNT=y / CONFIG_KEYS=y to gki_defconfig:
-          # NOMOUNT is tristate "default y" and KEYS is already enabled by
-          # default in the stock .config, so `make savedefconfig` omits both
-          # from its output. Any defconfig/fragment line that savedefconfig
-          # drops fails the kernel_aarch64_config trim check with
-          # "savedefconfig does not match gki_defconfig".
+          echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KEYS=y" >> arch/arm64/configs/gki_defconfig
           echo "NoMount enabled."
 
       - name: Apply binder async free race defensive fix
@@ -1204,6 +1140,9 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git /tmp/Droidspaces-OSS
           echo "DROIDSPACES_PATCHES=/tmp/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI" >> $GITHUB_ENV
+
+      - name: Back up baseline defconfig
+        run: cp "$DEFCONFIG" "$DEFCONFIG.orig"
 
       - name: Integrate Droidspaces support
         if: inputs.droidspaces != 'off'
@@ -1368,14 +1307,6 @@ jobs:
 
           if [ -f "drivers/misc/ntsync.c" ]; then
             echo "::notice::NTSync already present in kernel tree (upstream backport), skipping patch"
-            # The in-tree NTSync is gated by 'depends on BROKEN' (unfinished
-            # feature); drop the dependency so CONFIG_NTSYNC=y below can
-            # actually take effect. Otherwise check_config.py fails with
-            # "CONFIG_NTSYNC: actual '', expected 'y' from ksu.fragment".
-            if [ "${{ inputs.kernel_version }}" = "6.12" ] && grep -q 'depends on BROKEN' drivers/misc/Kconfig; then
-              perl -0pi -e 's/(config NTSYNC\n\ttristate[^\n]*\n)\tdepends on BROKEN\n/$1/' drivers/misc/Kconfig
-              echo "  Dropped 'depends on BROKEN' from config NTSYNC"
-            fi
           else
             patch -p1 --forward < "ntsync_base.patch" || { echo "::error::NTSync base patch failed"; exit 1; }
             patch -p1 --forward < "${NTSYNC_PATCH}.patch" || { echo "::error::NTSync ${NTSYNC_PATCH} patch failed"; exit 1; }
@@ -1641,15 +1572,6 @@ jobs:
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             sed -i '/kmi_symbol_list_strict_mode/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
-            # 6.12+ (bazel-only) defines module protection via modules.bzl
-            # (protected_modules) and the protected_module_names_list attribute
-            # in BUILD.bazel. Stock vendor WiFi/Bluetooth drivers (wlan.ko,
-            # bluetooth.ko, ...) are GKI "protected modules": they load only if
-            # signed with Google's key. A custom kernel cannot sign them, so
-            # they get rejected and WiFi/BT stay dead. Clearing the protected
-            # list lets the stock modules load.
-            perl -pi -e 's/^protected_modules = \[.*\]/protected_modules = []/' ./common/modules.bzl
-            perl -pi -e 's/^\s*protected_module_names_list\s*=\s*":gki_(?:aarch64|x86_64)_protected_module_names",\s*$//;' ./common/BUILD.bazel
             sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
           fi
 
@@ -1909,6 +1831,15 @@ jobs:
           path: |
             *AnyKernel3.zip
             *.img
+          compression-level: 9
+
+      - name: Upload patch reject files
+        if: always() && env.REJ_COUNT > 0
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-Rejects
+          path: patch-rejects/
+          if-no-files-found: ignore
           compression-level: 9
 
       - name: Upload patch reject files
