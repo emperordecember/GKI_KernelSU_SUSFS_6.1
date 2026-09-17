@@ -1647,15 +1647,6 @@ jobs:
             sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
             sed -i '/kmi_symbol_list_strict_mode/d' ./common/BUILD.bazel
             rm -rf ./common/android/abi_gki_protected_exports_*
-            # 6.12+ (bazel-only) defines module protection via modules.bzl
-            # (protected_modules) and the protected_module_names_list attribute
-            # in BUILD.bazel. Stock vendor WiFi/Bluetooth drivers (wlan.ko,
-            # bluetooth.ko, ...) are GKI "protected modules": they load only if
-            # signed with Google's key. A custom kernel cannot sign them, so
-            # they get rejected and WiFi/BT stay dead. Clearing the protected
-            # list lets the stock modules load.
-            perl -pi -e 's/^protected_modules = \[.*\]/protected_modules = []/' ./common/modules.bzl
-            perl -pi -e 's/^\s*protected_module_names_list\s*=\s*":gki_(?:aarch64|x86_64)_protected_module_names",\s*$//;' ./common/BUILD.bazel
             sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
           fi
 
