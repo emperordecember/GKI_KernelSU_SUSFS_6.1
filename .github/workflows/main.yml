@@ -53,11 +53,12 @@ on:
           - "disabled"
         default: "enabled"
       nomount:
-        description: "NoMount mount hiding"
+        description: "NoMount / Mountify mount hiding (metamodules)"
         type: choice
         options:
           - "nomount"
           - "nomount(hookless)"
+          - "mountify"
           - "disabled"
         default: "disabled"
 
