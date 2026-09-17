@@ -42,8 +42,24 @@ on:
           - SukiSU(40548)
           - ReSukiSU
           - Official
-          #- Next
+          - Next
+          - XXKSU
         default: ReSukiSU
+      susfs:
+        description: "SUSFS mount hiding"
+        type: choice
+        options:
+          - "enabled"
+          - "disabled"
+        default: "enabled"
+      nomount:
+        description: "NoMount mount hiding"
+        type: choice
+        options:
+          - "nomount"
+          - "nomount(hookless)"
+          - "disabled"
+        default: "disabled"
 
       # ==================== Optional configuration ====================
       version:
@@ -96,22 +112,14 @@ on:
         description: "Apply CVE-2026-43499 rtmutex fix chain"
         type: boolean
         default: false
-      cancel_susfs:
-        description: "Disable SUSFS"
-        type: boolean
-        default: false
       use_bbrv3:
         description: "Enable BBRv3 TCP congestion control backport (Android 14 - 6.1 build; GKI common path only, warning no-op on Sultan path)"
         type: boolean
         default: false
-      mount_hiding:
-        description: "Mount hiding engine (SUSFS / NoMount / none) for Android 14 - 6.1 builds"
-        type: choice
-        options:
-          - "susfs"
-          - "nomount"
-          - "none"
-        default: "susfs"
+      use_vpnhide:
+        description: "Enable VPNHide Next (LSM-based VPN hiding)"
+        type: boolean
+        default: false
 
       # ==================== Build version selection ====================
       build_a12_5_10:
@@ -147,6 +155,9 @@ jobs:
     secrets: inherit
     with:
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide || false }}
 
   # ==================== Android 12 - 5.10 build ====================
   build-a12-5-10:
@@ -162,7 +173,10 @@ jobs:
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
-      cancel_susfs: ${{ inputs.cancel_susfs }}
+      use_bbrv3: ${{ inputs.use_bbrv3 }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide }}
       droidspaces: ${{ inputs.droidspaces }}
       artifact_upload_mode: "Upload all"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
@@ -182,7 +196,10 @@ jobs:
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
-      cancel_susfs: ${{ inputs.cancel_susfs }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide }}
+
       droidspaces: ${{ inputs.droidspaces }}
       artifact_upload_mode: "Upload all"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
@@ -202,9 +219,11 @@ jobs:
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
-      cancel_susfs: ${{ inputs.cancel_susfs }}
+
       use_bbrv3: ${{ inputs.use_bbrv3 }}
-      mount_hiding: ${{ inputs.mount_hiding }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide }}
       droidspaces: ${{ inputs.droidspaces }}
       artifact_upload_mode: "Upload all"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
@@ -224,7 +243,10 @@ jobs:
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
-      cancel_susfs: ${{ inputs.cancel_susfs }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide }}
+
       droidspaces: ${{ inputs.droidspaces }}
       artifact_upload_mode: "Upload all"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
@@ -244,7 +266,10 @@ jobs:
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
-      cancel_susfs: ${{ inputs.cancel_susfs }}
+      susfs: ${{ inputs.susfs || 'enabled' }}
+      nomount: ${{ inputs.nomount || 'disabled' }}
+      use_vpnhide: ${{ inputs.use_vpnhide }}
+
       droidspaces: ${{ inputs.droidspaces }}
       artifact_upload_mode: "Upload all"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
@@ -320,6 +345,7 @@ jobs:
           # KSU display name
           case "${{ inputs.kernelsu_variant }}" in
             "Next")      KSU_NAME="KernelSU-Next" ;;
+            "XXKSU")     KSU_NAME="XXKSU" ;;
             "Official")  KSU_NAME="KernelSU" ;;
             "SukiSU")    KSU_NAME="SukiSU" ;;
             "ReSukiSU")  KSU_NAME="ReSukiSU" ;;
@@ -392,7 +418,7 @@ jobs:
           case "${{ inputs.kernelsu_variant }}" in
             "Official") BRANCH="main" ;;
             "SukiSU")
-              if [ "${{ inputs.cancel_susfs }}" = "true" ]; then
+              if [ "${{ inputs.susfs }}" != "enabled" ]; then
                 BRANCH="main"
               else
                 BRANCH="builtin"
@@ -400,6 +426,7 @@ jobs:
               ;;
             "ReSukiSU") BRANCH="main" ;;
             "Next") BRANCH="dev" ;;
+            "XXKSU") BRANCH="master" ;;
             *) echo "Error: unknown variant" >&2; exit 1 ;;
           esac
           echo "KSU_BRANCH=$BRANCH" >> $GITHUB_ENV
@@ -412,6 +439,7 @@ jobs:
           case "${{ inputs.kernelsu_variant }}" in
             "Official") REPO_URL="https://github.com/tiann/KernelSU.git"; REPO_URL2="tiann/KernelSU" ;;
             "Next") REPO_URL="https://github.com/KernelSU-Next/KernelSU-Next.git"; REPO_URL2="KernelSU-Next/KernelSU-Next" ;;
+            "XXKSU") REPO_URL="https://github.com/backslashxx/KernelSU.git"; REPO_URL2="backslashxx/KernelSU" ;;
             "SukiSU") REPO_URL="https://github.com/SukiSU-Ultra/SukiSU-Ultra.git"; REPO_URL2="SukiSU-Ultra/SukiSU-Ultra" ;;
             "ReSukiSU") REPO_URL="https://github.com/ReSukiSU/ReSukiSU.git"; REPO_URL2="ReSukiSU/ReSukiSU" ;;
           esac
@@ -624,19 +652,31 @@ jobs:
             $PRERELEASE_FLAG
 
       # ==================== Upload manager and modules ====================
-      - name: Upload manager and SUSFS module
+      - name: Upload manager and mount-hiding modules
         continue-on-error: true
         run: |
-          echo "Preparing to upload APK and SUSFS module..."
+          echo "Preparing to upload APK and mount-hiding modules..."
           apk_count=$(find ./downloaded-artifacts -type f -name "*.apk" | wc -l || true)
           sus_count=$(find ./downloaded-artifacts -type f -path "./downloaded-artifacts/susfs-*/*" | wc -l || true)
+          nomount_count=$(find ./downloaded-artifacts -type f -path "./downloaded-artifacts/nomount-*/*" | wc -l || true)
+          vpnhide_count=$(find ./downloaded-artifacts -type f -path "./downloaded-artifacts/*vpnhide-companion/*" | wc -l || true)
           echo "APK files: ${apk_count}"
           echo "SUSFS files: ${sus_count}"
+          echo "NoMount files: ${nomount_count}"
+          echo "VPNHide files: ${vpnhide_count}"
           find ./downloaded-artifacts -type f -name "*.apk" -print0 | \
           while IFS= read -r -d '' f; do
             gh release upload "$NEW_TAG" "$f" || true
           done
           find ./downloaded-artifacts -type f -path "./downloaded-artifacts/susfs-*/*" -print0 | \
+          while IFS= read -r -d '' f; do
+            gh release upload "$NEW_TAG" "$f" || true
+          done
+          find ./downloaded-artifacts -type f -path "./downloaded-artifacts/nomount-*/*" -print0 | \
+          while IFS= read -r -d '' f; do
+            gh release upload "$NEW_TAG" "$f" || true
+          done
+          find ./downloaded-artifacts -type f -path "./downloaded-artifacts/*vpnhide-companion/*" -print0 | \
           while IFS= read -r -d '' f; do
             gh release upload "$NEW_TAG" "$f" || true
           done
