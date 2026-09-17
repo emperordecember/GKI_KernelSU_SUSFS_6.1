@@ -129,6 +129,11 @@ on:
         required: false
         type: boolean
         default: false
+      use_performance:
+        description: "Enable performance patches (mem ops, scheduler, fs, wakelock tuning)"
+        required: false
+        type: boolean
+        default: false
       supp_op:
         description: "启用一加 8E 支持"
         required: false
@@ -234,6 +239,7 @@ jobs:
       enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
       nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
+      use_performance: ${{ inputs.use_performance }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
