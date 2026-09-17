@@ -56,8 +56,8 @@ on:
         description: "NoMount / Mountify mount hiding (metamodules)"
         type: choice
         options:
-          - "nomount"
-          - "nomount(hookless)"
+          - "nomount (hookless)"
+          - "nomount (ci)"
           - "mountify"
           - "disabled"
         default: "disabled"
