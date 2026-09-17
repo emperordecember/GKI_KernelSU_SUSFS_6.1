@@ -461,7 +461,11 @@ jobs:
         run: |
           set -e
           echo "Fetching latest vpnhide-apk + vpnhide-bridge from soranerai/vpnhide_next CI..."
-          BUILD_ID=$(curl -s "https://api.github.com/repos/soranerai/vpnhide_next/actions/runs?status=success&per_page=1" \
+          # The repo has two workflows: "CI Image" (ci-image.yml, docker
+          # artifacts) and "CI" (ci.yml, apk/kmod/bridge). The bare runs
+          # endpoint returns CI Image first, whose artifacts are irrelevant
+          # -- pin to the CI workflow id so we find vpnhide-apk/bridge.
+          BUILD_ID=$(curl -s "https://api.github.com/repos/soranerai/vpnhide_next/actions/workflows/269938877/runs?status=success&per_page=1" \
             | jq -r '.workflow_runs[0].id')
           if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" == "null" ]; then
             echo "::warning::vpnhide_next CI run not found, skipping companion artifacts"
