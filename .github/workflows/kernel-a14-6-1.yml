@@ -113,6 +113,11 @@ on:
         required: false
         type: boolean
         default: false
+      use_performance:
+        description: "Enable performance patches (mem ops, scheduler, fs, wakelock tuning)"
+        required: false
+        type: boolean
+        default: false
       use_vpnhide:
         description: "Enable VPNHide Next (LSM-based VPN hiding)"
         required: false
@@ -180,6 +185,10 @@ on:
         required: false
         type: boolean
         default: false
+      use_performance:
+        required: false
+        type: boolean
+        default: false
       use_vpnhide:
         required: false
         type: boolean
@@ -221,6 +230,7 @@ jobs:
       enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
       nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
+      use_performance: ${{ inputs.use_performance }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
@@ -246,6 +256,7 @@ jobs:
       susfs: ${{ inputs.susfs || 'enabled' }}
       nomount: ${{ inputs.nomount || 'disabled' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
+      use_performance: ${{ inputs.use_performance }}
 
   # Pixel 9a (tegu): built from etnperlong's Sultan-based tegu port (6.1.157) via
   # the same sultan.yml pipeline. tegu's vendor_kernel_boot dtb payload is the same
@@ -269,6 +280,7 @@ jobs:
       susfs: ${{ inputs.susfs || 'enabled' }}
       nomount: ${{ inputs.nomount || 'disabled' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
+      use_performance: ${{ inputs.use_performance }}
 
   # Only runs on direct trigger, skipped when called from main.yml.
   # Runs for both Original and Sultan builds -- get-manager.yml handles the
