@@ -227,8 +227,8 @@ jobs:
           get_manager_artifacts() {
             local artifacts="$1"
             if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-              printf '%s' "$artifacts" | jq -r --arg name "$KSUM" \
-                '.artifacts[] | select(.name == $name) | "\(.name)\t\(.archive_download_url)"'
+              printf '%s' "$artifacts" | jq -r \
+                '.artifacts[] | select(.name == "manager" or .name == "manager-spoofed") | "\(.name)\t\(.archive_download_url)"'
             elif [ "${{ inputs.kernelsu_variant }}" == "ReSukiSU" ]; then
               printf '%s' "$artifacts" | jq -r \
                 '.artifacts[] | select(.name == "Manager-release" or .name == "Spoofed-Manager-release") | "\(.name)\t\(.archive_download_url)"'
