@@ -69,10 +69,10 @@ on:
         type: boolean
         default: false
       nomount_variant:
-        description: "NoMount driver source: dev or hookless"
+        description: "NoMount driver source: hookless (master, stable) or ci (dev, nightly)"
         required: false
         type: string
-        default: "dev"
+        default: "hookless"
       use_bbrv3:
         required: false
         type: boolean
@@ -1016,6 +1016,22 @@ jobs:
           grep -q '^CONFIG_TCP_CONG_BBR3=' arch/arm64/configs/gki_defconfig \
             && sed -i 's/^CONFIG_TCP_CONG_BBR3=.*/CONFIG_TCP_CONG_BBR3=y/' arch/arm64/configs/gki_defconfig \
             || echo 'CONFIG_TCP_CONG_BBR3=y' >> arch/arm64/configs/gki_defconfig
+          # Make BBR the default congestion control (BBRv3 stays selectable via
+          # sysctl net.ipv4.tcp_congestion_control). DEFAULT_BBR is a Kconfig
+          # choice entry that only exists 'if TCP_CONG_BBR=y'; older android16
+          # 6.12 branches (2025-06/07/09, sublevels 23/30/38) ship the GKI
+          # defconfig without CONFIG_TCP_CONG_BBR=y, so enable it first or the
+          # fragment gets a DEFAULT_BBR that olddefconfig silently drops and
+          # check_config.py fails with "actual '', expected 'y'".
+          grep -q '^CONFIG_TCP_CONG_BBR=y' arch/arm64/configs/gki_defconfig \
+            && sed -i 's/^CONFIG_TCP_CONG_BBR=.*/CONFIG_TCP_CONG_BBR=y/' arch/arm64/configs/gki_defconfig \
+            || echo 'CONFIG_TCP_CONG_BBR=y' >> arch/arm64/configs/gki_defconfig
+          grep -q '^CONFIG_DEFAULT_BBR=' arch/arm64/configs/gki_defconfig \
+            && sed -i 's/^CONFIG_DEFAULT_BBR=.*/CONFIG_DEFAULT_BBR=y/' arch/arm64/configs/gki_defconfig \
+            || echo 'CONFIG_DEFAULT_BBR=y' >> arch/arm64/configs/gki_defconfig
+          grep -q '^CONFIG_DEFAULT_TCP_CONG=' arch/arm64/configs/gki_defconfig \
+            && sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' arch/arm64/configs/gki_defconfig \
+            || echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> arch/arm64/configs/gki_defconfig
 
           # Enabling TCP_CONG_ADVANCED also exposes the sibling congestion control
           # algorithms (tcp_bic/htcp/westwood), which in the effective GKI config
@@ -1083,11 +1099,17 @@ jobs:
           patch -p1 --fuzz=0 < "$NOMOUNT_PATCH" || { echo "::error::NoMount patch failed to apply"; exit 1; }
           mkdir -p ./fs/nomount
           NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
-          NOMOUNT_BRANCH="master"
-          if [ "${{ inputs.nomount_variant }}" == "hookless" ]; then
-            NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
-            NOMOUNT_BRANCH="dev"
-          fi
+          # master = hookless base (stable), dev = CI/nightly. hookless is the
+          # default; ci tracks upstream dev for newer builds.
+          case "${{ inputs.nomount_variant }}" in
+            "ci")
+              NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
+              NOMOUNT_BRANCH="dev"
+              ;;
+            *)
+              NOMOUNT_BRANCH="master"
+              ;;
+          esac
           # Fetch the current driver from the upstream repo so we don't have to
           # re-bump the bundled copy on every upstream release. Fall back to the
           # local snapshot if the network fetch fails.
