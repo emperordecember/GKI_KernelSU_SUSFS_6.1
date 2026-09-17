@@ -15,7 +15,7 @@ on:
         type: string
         default: "enabled"
       nomount:
-        description: "NoMount module attachment: nomount / nomount(hookless) / disabled"
+        description: "NoMount module attachment: nomount (hookless) / nomount (ci) / disabled"
         required: false
         type: string
         default: "disabled"
@@ -388,7 +388,7 @@ jobs:
           else
             echo "下载 NoMount 模块 (latest CI from maxsteeel/nomount)..."
             case "${{ inputs.nomount }}" in
-              "nomount(hookless)") echo "::notice::NoMount module from branch: dev" ;;
+              "nomount (ci)") echo "::notice::NoMount module from branch: dev" ;;
               *) echo "::notice::NoMount module from branch: master" ;;
             esac
             REPO="maxsteeel/nomount"
