@@ -27,26 +27,7 @@ on:
           - SukiSU(40726)
           - SukiSU(40548)
           - ReSukiSU
-          - XXKSU
         default: ReSukiSU
-      susfs:
-        description: "SUSFS mount hiding"
-        required: false
-        type: choice
-        options:
-          - "enabled"
-          - "disabled"
-        default: "enabled"
-      nomount:
-        description: "NoMount / Mountify mount hiding (metamodules)"
-        required: false
-        type: choice
-        options:
-          - "nomount"
-          - "nomount(hookless)"
-          - "mountify"
-          - "disabled"
-        default: "disabled"
       version:
         description: "Custom version name (optional)"
         required: false
@@ -108,16 +89,25 @@ on:
         required: false
         type: boolean
         default: false
+      cancel_susfs:
+        description: "Disable SUSFS"
+        required: true
+        type: boolean
+        default: false
       use_bbrv3:
         description: "Enable BBRv3 TCP congestion control backport (android14-6.1; GKI common path only, warning no-op on Sultan path)"
         required: false
         type: boolean
         default: false
-      use_vpnhide:
-        description: "Enable VPNHide Next (LSM-based VPN hiding)"
+      mount_hiding:
+        description: "Mount hiding engine"
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - "susfs"
+          - "nomount"
+          - "none"
+        default: "susfs"
   workflow_call:
     inputs:
       kernel_source:
@@ -151,14 +141,9 @@ on:
         required: false
         type: boolean
         default: false
-      susfs:
+      cancel_susfs:
         required: false
-        type: string
-        default: "enabled"
-      nomount:
-        required: false
-        type: string
-        default: "disabled"
+        type: boolean
       droidspaces:
         required: false
         type: string
@@ -180,10 +165,10 @@ on:
         required: false
         type: boolean
         default: false
-      use_vpnhide:
+      mount_hiding:
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: "susfs"
 
 jobs:
   build-kernels-a14-6-1:
@@ -217,11 +202,9 @@ jobs:
       use_rekernel: ${{ inputs.use_rekernel || false }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
       supp_op: false
-      enable_susfs: ${{ inputs.susfs == 'enabled' }}
-      enable_nomount: ${{ inputs.nomount == 'nomount' || inputs.nomount == 'nomount(hookless)' }}
-      nomount_variant: ${{ contains(inputs.nomount, 'hookless') && 'hookless' || 'dev' }}
+      enable_susfs: ${{ inputs.mount_hiding == 'susfs' && !inputs.cancel_susfs }}
+      enable_nomount: ${{ inputs.mount_hiding == 'nomount' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
-      use_vpnhide: ${{ inputs.use_vpnhide }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
@@ -243,8 +226,7 @@ jobs:
       ksu_variant: ${{ inputs.kernelsu_variant }}
       use_bbg: ${{ inputs.use_bbg }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
-      susfs: ${{ inputs.susfs || 'enabled' }}
-      nomount: ${{ inputs.nomount || 'disabled' }}
+      mount_hiding: ${{ inputs.mount_hiding || 'susfs' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
 
   # Pixel 9a (tegu): built from etnperlong's Sultan-based tegu port (6.1.157) via
@@ -266,8 +248,7 @@ jobs:
       ksu_variant: ${{ inputs.kernelsu_variant }}
       use_bbg: ${{ inputs.use_bbg }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
-      susfs: ${{ inputs.susfs || 'enabled' }}
-      nomount: ${{ inputs.nomount || 'disabled' }}
+      mount_hiding: ${{ inputs.mount_hiding || 'susfs' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
 
   # Only runs on direct trigger, skipped when called from main.yml.
@@ -279,6 +260,3 @@ jobs:
     secrets: inherit
     with:
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
-      susfs: ${{ inputs.susfs || 'enabled' }}
-      nomount: ${{ inputs.nomount || 'disabled' }}
-      use_vpnhide: ${{ inputs.use_vpnhide || false }}
