@@ -48,13 +48,12 @@ on:
           - "disabled"
         default: "enabled"
       nomount:
-        description: "NoMount / Mountify mount hiding (metamodules)"
+        description: "NoMount mount hiding"
         required: false
         type: choice
         options:
-          - "nomount (hookless)"
-          - "nomount (ci)"
-          - "mountify"
+          - "nomount"
+          - "nomount(hookless)"
           - "disabled"
         default: "disabled"
 
@@ -126,11 +125,6 @@ on:
         default: false
       use_vpnhide:
         description: "Enable VPNHide Next (LSM-based VPN hiding)"
-        required: false
-        type: boolean
-        default: false
-      use_performance:
-        description: "Enable performance patches (mem ops, scheduler, fs, wakelock tuning)"
         required: false
         type: boolean
         default: false
@@ -236,10 +230,9 @@ jobs:
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
       supp_op: ${{ inputs.supp_op || false }}
       enable_susfs: ${{ inputs.susfs == 'enabled' }}
-      enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
-      nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
+      enable_nomount: ${{ inputs.nomount != 'disabled' }}
+      nomount_variant: ${{ contains(inputs.nomount, 'hookless') && 'hookless' || 'dev' }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
-      use_performance: ${{ inputs.use_performance }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
