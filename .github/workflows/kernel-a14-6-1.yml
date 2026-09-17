@@ -38,12 +38,13 @@ on:
           - "disabled"
         default: "enabled"
       nomount:
-        description: "NoMount mount hiding"
+        description: "NoMount / Mountify mount hiding (metamodules)"
         required: false
         type: choice
         options:
           - "nomount"
           - "nomount(hookless)"
+          - "mountify"
           - "disabled"
         default: "disabled"
       version:
@@ -217,7 +218,7 @@ jobs:
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
       supp_op: false
       enable_susfs: ${{ inputs.susfs == 'enabled' }}
-      enable_nomount: ${{ inputs.nomount != 'disabled' }}
+      enable_nomount: ${{ inputs.nomount == 'nomount' || inputs.nomount == 'nomount(hookless)' }}
       nomount_variant: ${{ contains(inputs.nomount, 'hookless') && 'hookless' || 'dev' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
