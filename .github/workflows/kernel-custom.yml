@@ -52,8 +52,8 @@ on:
         required: false
         type: choice
         options:
-          - "nomount"
-          - "nomount(hookless)"
+          - "nomount (hookless)"
+          - "nomount (ci)"
           - "mountify"
           - "disabled"
         default: "disabled"
@@ -231,8 +231,8 @@ jobs:
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
       supp_op: ${{ inputs.supp_op || false }}
       enable_susfs: ${{ inputs.susfs == 'enabled' }}
-      enable_nomount: ${{ inputs.nomount == 'nomount' || inputs.nomount == 'nomount(hookless)' }}
-      nomount_variant: ${{ contains(inputs.nomount, 'hookless') && 'hookless' || 'dev' }}
+      enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
+      nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
