@@ -68,7 +68,17 @@ on:
         required: false
         type: boolean
         default: false
+      nomount_variant:
+        description: "NoMount driver source: dev or hookless"
+        required: false
+        type: string
+        default: "dev"
       use_bbrv3:
+        required: false
+        type: boolean
+        default: false
+      use_vpnhide:
+        description: "Enable VPNHide Next (soranerai/vpnhide_next_backend) LSM-based VPN hiding"
         required: false
         type: boolean
         default: false
@@ -115,6 +125,7 @@ jobs:
           echo "SUSFS enabled    : ${{ inputs.enable_susfs }}"
           echo "NoMount enabled  : ${{ inputs.enable_nomount }}"
           echo "BBRv3 enabled    : ${{ inputs.use_bbrv3 }}"
+          echo "VPNHide enabled  : ${{ inputs.use_vpnhide }}"
           echo "ZRAM boost       : ${{ inputs.use_zram }}"
           echo "BBG patch        : ${{ inputs.use_bbg }}"
           echo "KPM support      : ${{ inputs.use_kpm }}"
@@ -430,6 +441,9 @@ jobs:
             "Next")
               BRANCH=""
               ;;
+            "XXKSU")
+              BRANCH=""
+              ;;
             *)
               if [ -z "$LEGACY_SUKISU_CONFIG" ] || [ ! -f "$LEGACY_SUKISU_CONFIG" ]; then
                 echo "Unknown variant: $variant_input" >&2
@@ -479,8 +493,24 @@ jobs:
               cd ..
               ;;
             "Next")
-              echo "Adding KernelSU-Next..."
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev_susfs
+              echo "Adding KernelSU-Next (pershoot dev-susfs)..."
+              # SUSFS-enabled KernelSU-Next lives in pershoot's fork; the
+              # official KernelSU-Next repo dropped the dev_susfs branch.
+              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+              ;;
+            "XXKSU")
+              echo "Adding XXKSU (backslashxx/kernelsu)..."
+              curl -LSs "https://raw.githubusercontent.com/backslashxx/kernelsu/master/kernel/setup.sh" | bash
+
+              cd KernelSU
+              KSU_GIT_VERSION=$(git rev-list --count HEAD)
+              KSU_VERSION=$((30000 + KSU_GIT_VERSION))
+              echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
+
+              if [ -f "kernel/Makefile" ]; then
+                sed -i "s/-DKSU_VERSION=[0-9]*/-DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
+              fi
+              cd ..
               ;;
             "SukiSU")
               echo "Adding ${{ inputs.ksu_variant }}..."
@@ -642,6 +672,9 @@ jobs:
               ;;
             "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"ReSukiSU")
               echo "Next/SukiSU/SukiSU(40726)/SukiSU(40548)/ReSukiSU use built-in SUSFS support"
+              ;;
+            "XXKSU")
+              echo "::warning::SUSFS patch is incompatible with XXKSU (unity-build kernel/Makefile, no kernel/Kbuild). Skipping SUSFS; kernel builds without SUSFS hooks."
               ;;
           esac
 
@@ -811,7 +844,7 @@ jobs:
             fi
           fi
 
-          if [ "${{ inputs.ksu_variant }}" == "Official" ] || [ "${{ inputs.ksu_variant }}" == "Next" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ]; then
+          if [ "${{ inputs.ksu_variant }}" == "Official" ] || [ "${{ inputs.ksu_variant }}" == "Next" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "XXKSU" ]; then
             fix_namespace_susfs_mount_decls() {
               local label="$1"
               local marker_pattern="$2"
@@ -957,11 +990,19 @@ jobs:
         if: inputs.use_bbrv3
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          echo "Applying BBRv3 TCP congestion control backport (android14-6.1)..."
+          echo "Applying BBRv3 TCP congestion control backport..."
           if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
             PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch"
+          elif [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+            # Two variants cover the 5.10 matrix: deprecated 2025-02/2025-05
+            # branches (SUBLEVEL 233/236) need the 2025-06 context, while the
+            # 2025-09 (240) and lts (X) branches use the lts context.
+            case "${{ inputs.os_patch_level }}" in
+              "2025-02"|"2025-05"|"2025-06") PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android12-5.10-2025-06.patch" ;;
+              *) PATCH="$GITHUB_WORKSPACE/.github/patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android12-5.10-lts.patch" ;;
+            esac
           else
-            echo "::warning::BBRv3 is only available for android14-6.1 in this repo; skipping."
+            echo "::warning::BBRv3 is only available for android14-6.1 and android12-5.10 in this repo; skipping."
             exit 0
           fi
 
@@ -976,17 +1017,60 @@ jobs:
             && sed -i 's/^CONFIG_TCP_CONG_BBR3=.*/CONFIG_TCP_CONG_BBR3=y/' arch/arm64/configs/gki_defconfig \
             || echo 'CONFIG_TCP_CONG_BBR3=y' >> arch/arm64/configs/gki_defconfig
 
+          # Enabling TCP_CONG_ADVANCED also exposes the sibling congestion control
+          # algorithms (tcp_bic/htcp/westwood), which in the effective GKI config
+          # default to the CUBIC value (m) and get built as .ko. Kleaf/Bazel
+          # hard-fails the build when a module is built but not declared in the
+          # kernel_build module_outs list ("kernel modules are built but not
+          # copied"). In Kleaf the generated kernel_aarch64 target pulls its
+          # module_outs from get_gki_modules_list() in modules.bzl (there is no
+          # literal "module_outs = [" in BUILD.bazel for GKI targets), so the
+          # three modules must be declared there. Only do this when BBRv3 is
+          # enabled: listing a module that is not built also fails the build.
+          # This only applies to the 6.1 Kleaf layout; on 5.10 the module list
+          # lives in the build system differently (verified clean for 5.10).
+          if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
+            if grep -qF '"net/ipv4/tcp_bic.ko"' modules.bzl; then
+              echo "modules.bzl already declares BBRv3 TCP CC modules"
+            else
+              perl -0pi -e 's/(    "net\/ieee802154\/ieee802154_socket.ko",\n)/$1    "net\/ipv4\/tcp_bic.ko",\n    "net\/ipv4\/tcp_htcp.ko",\n    "net\/ipv4\/tcp_westwood.ko",\n/' modules.bzl
+              if grep -qF '"net/ipv4/tcp_bic.ko"' modules.bzl; then
+                echo "Declared tcp_bic/tcp_htcp/tcp_westwood in modules.bzl"
+              else
+                echo "::error::Failed to declare BBRv3 TCP CC modules in modules.bzl"
+                exit 1
+              fi
+            fi
+          fi
+
           echo "BBRv3 enabled."
+
+      - name: Apply VPNHide Next patches
+        if: inputs.use_vpnhide
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          echo "Applying VPNHide Next (soranerai/vpnhide_next_backend) LSM-based VPN hiding..."
+          VERSION="${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+          APPLY="$GITHUB_WORKSPACE/.github/patches/vpnhide/scripts/apply.sh"
+          if [ ! -d "$GITHUB_WORKSPACE/.github/patches/vpnhide/versions/$VERSION" ]; then
+            echo "::error::VPNHide: no patch set for $VERSION in .github/patches/vpnhide/versions/ (supported: $(ls $GITHUB_WORKSPACE/.github/patches/vpnhide/versions/))"
+            exit 1
+          fi
+          bash "$APPLY" "$PWD" "$VERSION" || { echo "::error::VPNHide apply.sh failed"; exit 1; }
+          grep -q '^CONFIG_VPNHIDE=y' arch/arm64/configs/gki_defconfig \
+            && sed -i 's/^CONFIG_VPNHIDE=.*/CONFIG_VPNHIDE=y/' arch/arm64/configs/gki_defconfig \
+            || echo 'CONFIG_VPNHIDE=y' >> arch/arm64/configs/gki_defconfig
+          echo "VPNHide enabled."
 
       - name: Apply NoMount patch
         if: inputs.enable_nomount
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           echo "Applying NoMount (nomount) path redirection subsystem..."
-          if [[ "${{ inputs.enable_susfs }}" == "true" ]]; then
-            echo "::error::enable_nomount and enable_susfs are mutually exclusive: SUSFS and NoMount hook the same VFS functions. Pass a single mount hiding engine."
-            exit 1
-          fi
+          # NoMount v12 is self-contained (fs/nomount/, key-based add_key
+          # transport): it no longer edits fs/*.c, so SUSFS and NoMount can be
+          # applied together (SUSFS adds its own fs/*.c hooks). Runtime
+          # interaction is untested -- both act on the VFS layer.
           case "${{ inputs.kernel_version }}" in
             5.10) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.10_kernel_integration.patch" ;;
             5.15) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.15_kernel_integration.patch" ;;
@@ -997,10 +1081,62 @@ jobs:
           esac
 
           patch -p1 --fuzz=0 < "$NOMOUNT_PATCH" || { echo "::error::NoMount patch failed to apply"; exit 1; }
-          cp $GITHUB_WORKSPACE/.github/patches/nomount/src/nomount.c ./fs/
-          cp $GITHUB_WORKSPACE/.github/patches/nomount/src/nomount.h ./fs/
+          mkdir -p ./fs/nomount
+          NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
+          NOMOUNT_BRANCH="master"
+          if [ "${{ inputs.nomount_variant }}" == "hookless" ]; then
+            NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
+            NOMOUNT_BRANCH="dev"
+          fi
+          # Fetch the current driver from the upstream repo so we don't have to
+          # re-bump the bundled copy on every upstream release. Fall back to the
+          # local snapshot if the network fetch fails.
+          if curl -fsSL --retry 3 --retry-delay 2 \
+               "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/nomount.c" \
+               -o ./fs/nomount/nomount.c; then
+            echo "Fetched nomount.c from maxsteeel/nomount@$NOMOUNT_BRANCH"
+            curl -fsSL --retry 3 --retry-delay 2 \
+              "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/nomount.h" \
+              -o ./fs/nomount/nomount.h
+            curl -fsSL --retry 3 --retry-delay 2 \
+              "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/Kconfig" \
+              -o ./fs/nomount/Kconfig
+            curl -fsSL --retry 3 --retry-delay 2 \
+              "https://raw.githubusercontent.com/maxsteeel/nomount/$NOMOUNT_BRANCH/kernel/src/Makefile" \
+              -o ./fs/nomount/Makefile
+            echo "NoMount driver fetched from upstream ($NOMOUNT_BRANCH)."
+          else
+            echo "::warning::Failed to fetch NoMount driver from upstream, using bundled snapshot."
+            cp $NOMOUNT_SRC/nomount.c ./fs/nomount/
+            cp $NOMOUNT_SRC/nomount.h ./fs/nomount/
+            cp $NOMOUNT_SRC/Kconfig ./fs/nomount/
+            cp $NOMOUNT_SRC/Makefile ./fs/nomount/
+          fi
           echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KEYS=y" >> arch/arm64/configs/gki_defconfig
           echo "NoMount enabled."
+
+      - name: Apply binder async free race defensive fix
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          echo "Applying binder async free race defensive fix..."
+          # Replaces BUG_ON(!has_async_transaction) in binder_free_buf with
+          # a defensive check. Prevents kernel panic triggered by HMA-OSS
+          # (or any heavy oneway binder traffic) hitting the async transaction
+          # accounting race. Unfixed upstream in all android* branches.
+          case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
+            android12-5.10) PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android12-5.10.patch" ;;
+            android13-5.15) PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android13-5.15.patch" ;;
+            android14-6.1)  PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive.patch" ;;
+            android15-6.6)  PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android15-6.6.patch" ;;
+            android16-6.12) PATCH="$GITHUB_WORKSPACE/.github/patches/binder/binder_async_free_race_defensive-android16-6.12.patch" ;;
+            *)
+              echo "::warning::binder async free race fix has no port for ${{ inputs.android_version }}-${{ inputs.kernel_version }}; skipping."
+              exit 0
+              ;;
+          esac
+          patch -p1 --fuzz=0 < "$PATCH" || { echo "::error::binder async free race fix failed to apply"; exit 1; }
+          echo "Binder async race fix applied."
 
       - name: Clone Droidspaces patch repository
         if: inputs.droidspaces != 'off'
@@ -1128,8 +1264,11 @@ jobs:
           }
 
           if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
-            # 1. Enable user namespace (required)
-            # enable_config_if_defined CONFIG_USER_NS
+            # 1. User namespace: stay DISABLED (2.5.0 policy). Stock GKI ships it
+            # off; keeping it off avoids the /proc/self/uid_map root-detection
+            # vector (see soranerai/GKI_KernelSU_SUSFS#6). Droidspaces doesn't
+            # hard-require it for its NTSync/container core.
+            disable_config CONFIG_USER_NS
             # 2. Disable Android strict network control (required)
             disable_config CONFIG_ANDROID_PARANOID_NETWORK
           fi
@@ -1701,3 +1840,13 @@ jobs:
           path: patch-rejects/
           if-no-files-found: ignore
           compression-level: 9
+
+      - name: Upload patch reject files
+        if: always() && env.REJ_COUNT > 0
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-Rejects
+          path: patch-rejects/
+          if-no-files-found: ignore
+          compression-level: 9
+
