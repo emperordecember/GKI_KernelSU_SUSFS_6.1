@@ -124,6 +124,7 @@ jobs:
           echo "Build time       : ${{ inputs.build_time }}"
           echo "SUSFS enabled    : ${{ inputs.enable_susfs }}"
           echo "NoMount enabled  : ${{ inputs.enable_nomount }}"
+          echo "NoMount variant  : ${{ inputs.nomount_variant }}"
           echo "BBRv3 enabled    : ${{ inputs.use_bbrv3 }}"
           echo "VPNHide enabled  : ${{ inputs.use_vpnhide }}"
           echo "ZRAM boost       : ${{ inputs.use_zram }}"
@@ -493,10 +494,8 @@ jobs:
               cd ..
               ;;
             "Next")
-              echo "Adding KernelSU-Next (pershoot dev-susfs)..."
-              # SUSFS-enabled KernelSU-Next lives in pershoot's fork; the
-              # official KernelSU-Next repo dropped the dev_susfs branch.
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+              echo "Adding KernelSU-Next..."
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/dev/kernel/setup.sh" | bash -s dev_susfs
               ;;
             "XXKSU")
               echo "Adding XXKSU (backslashxx/kernelsu)..."
@@ -1071,6 +1070,7 @@ jobs:
           # transport): it no longer edits fs/*.c, so SUSFS and NoMount can be
           # applied together (SUSFS adds its own fs/*.c hooks). Runtime
           # interaction is untested -- both act on the VFS layer.
+          echo "::notice::NoMount variant selected: ${{ inputs.nomount_variant }}"
           case "${{ inputs.kernel_version }}" in
             5.10) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.10_kernel_integration.patch" ;;
             5.15) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.15_kernel_integration.patch" ;;
@@ -1085,8 +1085,11 @@ jobs:
           NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
           NOMOUNT_BRANCH="master"
           if [ "${{ inputs.nomount_variant }}" == "hookless" ]; then
+            echo "Using NoMount hookless driver..."
             NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
             NOMOUNT_BRANCH="dev"
+          else
+            echo "Using NoMount dev driver..."
           fi
           # Fetch the current driver from the upstream repo so we don't have to
           # re-bump the bundled copy on every upstream release. Fall back to the
