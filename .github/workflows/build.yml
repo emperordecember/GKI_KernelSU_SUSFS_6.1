@@ -1071,16 +1071,13 @@ jobs:
           # transport): it no longer edits fs/*.c, so SUSFS and NoMount can be
           # applied together (SUSFS adds its own fs/*.c hooks). Runtime
           # interaction is untested -- both act on the VFS layer.
-          case "${{ inputs.kernel_version }}" in
-            5.10) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.10_kernel_integration.patch" ;;
-            5.15) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.15_kernel_integration.patch" ;;
-            6.1)  NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_6.1_kernel_integration.patch" ;;
-            6.6)  NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_6.6_kernel_integration.patch" ;;
-            6.12) NOMOUNT_PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_6.12_kernel_integration.patch" ;;
-            *) echo "::error::NoMount: no nomount_${{ inputs.kernel_version }}_kernel_integration.patch"; exit 1 ;;
-          esac
-
-          patch -p1 --fuzz=0 < "$NOMOUNT_PATCH" || { echo "::error::NoMount patch failed to apply"; exit 1; }
+          # NoMount integration is done via anchor-based sed (not a context
+          # patch): SUSFS also inserts into fs/Makefile's obj-y block before
+          # us, which shifts the patch context and breaks fuzz=0. Anchoring on
+          # stable lines (obj-$(CONFIG_BUFFER_HEAD), config IO_WQ + endmenu)
+          # works regardless of what SUSFS already added.
+          grep -q 'CONFIG_NOMOUNT' fs/Makefile || sed -i '/obj-\$(CONFIG_PROC_FS)\t\t+= proc_namespace.o/i\obj-\$(CONFIG_NOMOUNT) += nomount/\' fs/Makefile
+          grep -q 'fs/nomount/Kconfig' fs/Kconfig || sed -i '/^config IO_WQ$/a\source "fs/nomount/Kconfig"' fs/Kconfig
           mkdir -p ./fs/nomount
           NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
           NOMOUNT_BRANCH="master"
