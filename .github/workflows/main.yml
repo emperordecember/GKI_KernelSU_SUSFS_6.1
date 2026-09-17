@@ -53,12 +53,11 @@ on:
           - "disabled"
         default: "enabled"
       nomount:
-        description: "NoMount / Mountify mount hiding (metamodules)"
+        description: "NoMount mount hiding"
         type: choice
         options:
-          - "nomount (hookless)"
-          - "nomount (ci)"
-          - "mountify"
+          - "nomount"
+          - "nomount(hookless)"
           - "disabled"
         default: "disabled"
 
@@ -270,7 +269,6 @@ jobs:
       susfs: ${{ inputs.susfs || 'enabled' }}
       nomount: ${{ inputs.nomount || 'disabled' }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
-      use_bbrv3: ${{ inputs.use_bbrv3 }}
 
       droidspaces: ${{ inputs.droidspaces }}
       artifact_upload_mode: "Upload all"
