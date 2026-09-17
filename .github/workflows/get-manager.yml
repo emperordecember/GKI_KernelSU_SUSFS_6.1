@@ -15,7 +15,7 @@ on:
         type: string
         default: "enabled"
       nomount:
-        description: "NoMount module attachment: nomount (hookless) / nomount (ci) / disabled"
+        description: "NoMount module attachment: nomount / nomount(hookless) / disabled"
         required: false
         type: string
         default: "disabled"
@@ -227,8 +227,8 @@ jobs:
           get_manager_artifacts() {
             local artifacts="$1"
             if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-              printf '%s' "$artifacts" | jq -r \
-                '.artifacts[] | select(.name == "manager" or .name == "manager-spoofed") | "\(.name)\t\(.archive_download_url)"'
+              printf '%s' "$artifacts" | jq -r --arg name "$KSUM" \
+                '.artifacts[] | select(.name == $name) | "\(.name)\t\(.archive_download_url)"'
             elif [ "${{ inputs.kernelsu_variant }}" == "ReSukiSU" ]; then
               printf '%s' "$artifacts" | jq -r \
                 '.artifacts[] | select(.name == "Manager-release" or .name == "Spoofed-Manager-release") | "\(.name)\t\(.archive_download_url)"'
@@ -388,7 +388,7 @@ jobs:
           else
             echo "下载 NoMount 模块 (latest CI from maxsteeel/nomount)..."
             case "${{ inputs.nomount }}" in
-              "nomount (ci)") echo "::notice::NoMount module from branch: dev" ;;
+              "nomount(hookless)") echo "::notice::NoMount module from branch: dev" ;;
               *) echo "::notice::NoMount module from branch: master" ;;
             esac
             REPO="maxsteeel/nomount"
@@ -461,11 +461,7 @@ jobs:
         run: |
           set -e
           echo "Fetching latest vpnhide-apk + vpnhide-bridge from soranerai/vpnhide_next CI..."
-          # The repo has two workflows: "CI Image" (ci-image.yml, docker
-          # artifacts) and "CI" (ci.yml, apk/kmod/bridge). The bare runs
-          # endpoint returns CI Image first, whose artifacts are irrelevant
-          # -- pin to the CI workflow id so we find vpnhide-apk/bridge.
-          BUILD_ID=$(curl -s "https://api.github.com/repos/soranerai/vpnhide_next/actions/workflows/269938877/runs?status=success&per_page=1" \
+          BUILD_ID=$(curl -s "https://api.github.com/repos/soranerai/vpnhide_next/actions/runs?status=success&per_page=1" \
             | jq -r '.workflow_runs[0].id')
           if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" == "null" ]; then
             echo "::warning::vpnhide_next CI run not found, skipping companion artifacts"
