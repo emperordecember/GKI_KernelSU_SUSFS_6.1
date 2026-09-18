@@ -129,11 +129,6 @@ on:
         required: false
         type: boolean
         default: false
-      use_performance:
-        description: "Enable performance patches (mem ops, scheduler, fs, wakelock tuning)"
-        required: false
-        type: boolean
-        default: false
       supp_op:
         description: "启用一加 8E 支持"
         required: false
