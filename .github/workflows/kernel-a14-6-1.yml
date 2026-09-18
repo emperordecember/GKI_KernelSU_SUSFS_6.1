@@ -113,11 +113,6 @@ on:
         required: false
         type: boolean
         default: false
-      use_performance:
-        description: "Enable performance patches (mem ops, scheduler, fs, wakelock tuning)"
-        required: false
-        type: boolean
-        default: false
       use_vpnhide:
         description: "Enable VPNHide Next (LSM-based VPN hiding)"
         required: false
@@ -185,10 +180,6 @@ on:
         required: false
         type: boolean
         default: false
-      use_performance:
-        required: false
-        type: boolean
-        default: false
       use_vpnhide:
         required: false
         type: boolean
@@ -230,7 +221,6 @@ jobs:
       enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
       nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
       use_bbrv3: ${{ inputs.use_bbrv3 }}
-      use_performance: ${{ inputs.use_performance }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
