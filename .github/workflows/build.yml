@@ -1081,7 +1081,7 @@ jobs:
                    increase_ext4_default_commit_age reduce_cache_pressure \
                    increase_sk_mem_packets file_struct_8bytes_align \
                    disable_cache_hot_buddy silence_system_logspam; do
-            patch -p1 --fuzz=2 < "$GITHUB_WORKSPACE/.github/patches/performance/$P.patch" \
+            patch -p1 --fuzz=0 < "$GITHUB_WORKSPACE/.github/patches/performance/$P.patch" \
               || { echo "::error::performance $P.patch failed"; exit 1; }
           done
           echo "Performance patches applied."
