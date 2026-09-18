@@ -1020,16 +1020,14 @@ jobs:
           grep -q '^CONFIG_TCP_CONG_BBR3=' arch/arm64/configs/gki_defconfig \
             && sed -i 's/^CONFIG_TCP_CONG_BBR3=.*/CONFIG_TCP_CONG_BBR3=y/' arch/arm64/configs/gki_defconfig \
             || echo 'CONFIG_TCP_CONG_BBR3=y' >> arch/arm64/configs/gki_defconfig
-          # Make BBR the default congestion control (BBRv3 stays selectable via
-          # sysctl net.ipv4.tcp_congestion_control). DEFAULT_BBR is a Kconfig
-          # choice entry that only exists 'if TCP_CONG_BBR=y'; older android16
-          # 6.12 branches (2025-06/07/09, sublevels 23/30/38) ship the GKI
-          # defconfig without CONFIG_TCP_CONG_BBR=y, so enable it first or the
-          # fragment gets a DEFAULT_BBR that olddefconfig silently drops and
-          # check_config.py fails with "actual '', expected 'y'".
-          grep -q '^CONFIG_TCP_CONG_BBR=y' arch/arm64/configs/gki_defconfig \
-            && sed -i 's/^CONFIG_TCP_CONG_BBR=.*/CONFIG_TCP_CONG_BBR=y/' arch/arm64/configs/gki_defconfig \
-            || echo 'CONFIG_TCP_CONG_BBR=y' >> arch/arm64/configs/gki_defconfig
+          # Match WildKernels: make BBR the default congestion control (BBRv3 is
+          # then selectable via sysctl net.ipv4.tcp_congestion_control).
+          grep -q '^CONFIG_DEFAULT_BBR=' arch/arm64/configs/gki_defconfig \
+            && sed -i 's/^CONFIG_DEFAULT_BBR=.*/CONFIG_DEFAULT_BBR=y/' arch/arm64/configs/gki_defconfig \
+            || echo 'CONFIG_DEFAULT_BBR=y' >> arch/arm64/configs/gki_defconfig
+          grep -q '^CONFIG_DEFAULT_TCP_CONG=' arch/arm64/configs/gki_defconfig \
+            && sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' arch/arm64/configs/gki_defconfig \
+            || echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> arch/arm64/configs/gki_defconfig
           grep -q '^CONFIG_DEFAULT_BBR=' arch/arm64/configs/gki_defconfig \
             && sed -i 's/^CONFIG_DEFAULT_BBR=.*/CONFIG_DEFAULT_BBR=y/' arch/arm64/configs/gki_defconfig \
             || echo 'CONFIG_DEFAULT_BBR=y' >> arch/arm64/configs/gki_defconfig
