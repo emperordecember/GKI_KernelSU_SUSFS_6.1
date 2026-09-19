@@ -577,11 +577,15 @@ jobs:
           # never contains it, but the fragment demands it). 6.1 has
           # DEF_COMP_* but no BACKEND_*; 6.12 is the reverse; LZ4K/LZ4KD only
           # exist once the zram LZ4K/LZ4KD patch is applied.
+          # CRYPTO_LZO is deliberately NOT disabled here: it is selected by
+          # HIBERNATION (=y in all GKI 6.1 defconfigs) independently of zram,
+          # so a fragment "is not set" never wins against the select and
+          # check_config fails with "CRYPTO_LZO: actual =y, expected ''".
           config_defined() {
             local name="${1#CONFIG_}"
             grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" common 2>/dev/null
           }
-          for CFG in CONFIG_ZRAM CONFIG_ZSMALLOC CONFIG_ZRAM_DEF_COMP_LZ4KD CONFIG_ZRAM_DEF_COMP_LZ4K CONFIG_CRYPTO_LZO CONFIG_ZRAM_BACKEND_LZ4 CONFIG_ZRAM_BACKEND_ZSTD CONFIG_ZRAM_BACKEND_LZO CONFIG_ZRAM_WRITEBACK CONFIG_ZRAM_MULTI_COMP CONFIG_ZRAM_ANDROID_IOCTL; do
+          for CFG in CONFIG_ZRAM CONFIG_ZSMALLOC CONFIG_ZRAM_DEF_COMP_LZ4KD CONFIG_ZRAM_DEF_COMP_LZ4K CONFIG_ZRAM_BACKEND_LZ4 CONFIG_ZRAM_BACKEND_ZSTD CONFIG_ZRAM_BACKEND_LZO CONFIG_ZRAM_WRITEBACK CONFIG_ZRAM_MULTI_COMP CONFIG_ZRAM_ANDROID_IOCTL; do
             if ! config_defined "$CFG"; then
               echo "  $CFG not present in this kernel, skipping"
               continue
