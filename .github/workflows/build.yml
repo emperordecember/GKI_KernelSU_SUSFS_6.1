@@ -601,12 +601,17 @@ jobs:
             fi
           done
 
-          # zram.ko/zsmalloc.ko intentionally stay listed in common/modules.bzl
-          # (module_outs). Kleaf only fails on "built but not copied", never on
-          # a listed module that did not build: off -> not built -> fine,
-          # =y -> built-in -> fine, =m -> built + copied -> fine. Stripping
-          # them here is what caused "kernel modules are built but not copied"
-          # on 6.1/6.6 when zram still came back as =m via .orig restore.
+          # zram.ko/zsmalloc.ko are never built now (fragment "is not set"), but
+          # Kleaf fails with "Unable to find ... zram.ko" if module_outs still
+          # lists them. Strip from every modules.bzl that lists them: GKI
+          # 6.1/6.12 use the repo-root modules.bzl via get_gki_modules_list(),
+          # older branches use common/modules.bzl.
+          for MBL in "$KERNEL_ROOT/modules.bzl" "$KERNEL_ROOT/common/modules.bzl"; do
+            if [ -f "$MBL" ]; then
+              sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$MBL"
+              echo "  Stripped zram.ko/zsmalloc.ko from $(basename "$(dirname "$MBL")")/$(basename "$MBL")"
+            fi
+          done
 
           # CONFIG_ZSMALLOC is off, so these exports genuinely no longer exist in the
           # ksymtab -- the strict KMI symbol-list check fails otherwise ("Symbols
@@ -1594,7 +1599,10 @@ jobs:
           fi
 
           if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
-            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$KERNEL_ROOT/common/modules.bzl"
+            for MBL in "$KERNEL_ROOT/modules.bzl" "$KERNEL_ROOT/common/modules.bzl"; do
+              [ -f "$MBL" ] || continue
+              sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$MBL"
+            done
           fi
 
           if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
