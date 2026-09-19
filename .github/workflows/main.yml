@@ -290,7 +290,7 @@ jobs:
   # Aggregate .rej files from all build jobs, to make patch issues easier to debug
   collect-rejects:
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - build-a12-5-10
       - build-a13-5-15
@@ -330,7 +330,7 @@ jobs:
   # Only runs on the origin repo, forks skip this step
   release:
     if: ${{ always() && !cancelled() && inputs.release_type != 'Actions' && github.repository == 'zzh20188/GKI_KernelSU_SUSFS' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: write
