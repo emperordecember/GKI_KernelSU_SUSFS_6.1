@@ -3,8 +3,10 @@
 # apply.sh — apply VPNHide in-tree patches to a GKI kernel source tree
 #
 # Usage: apply.sh <kernel_common_dir> <version>
-#   version: android12-5.10 | android13-5.15 | android14-6.1 |
-#            android15-6.6  | android16-6.12 | android17-6.18
+#   version: android12-5.10 | android13-5.10 | android13-5.15 | android14-5.15 |
+#            android14-6.1 |
+#            android15-6.6  | android16-6.12 | android17-6.18 |
+#            upstream-4.9 | upstream-4.14 | upstream-4.19 | android12-5.4
 # =============================================================================
 set -euo pipefail
 
@@ -14,16 +16,16 @@ VERSION="${2:?Usage: $0 <kernel_common_dir> <version>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KPATCH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PATCHES_DIR="$KPATCH_DIR/versions/$VERSION"
 DRIVER_DIR="$KPATCH_DIR/security/vpnhide"
 HEADER="$KPATCH_DIR/include/linux/vpnhide.h"
+MODERN_INJECTOR="$SCRIPT_DIR/inject_modern.py"
+LEGACY_INJECTOR="$SCRIPT_DIR/inject_legacy.py"
 
 # --------------------------------------------------------------------------
 log() { echo "[apply.sh] $*"; }
 die() { echo "[apply.sh] ERROR: $*" >&2; exit 1; }
 
 [ -d "$KERNEL_DIR" ]  || die "kernel dir not found: $KERNEL_DIR"
-[ -d "$PATCHES_DIR" ] || die "no patches for version '$VERSION' (dir missing: $PATCHES_DIR)"
 [ -d "$DRIVER_DIR" ]  || die "driver source not found: $DRIVER_DIR"
 [ -f "$HEADER" ]      || die "vpnhide.h not found: $HEADER"
 
@@ -40,29 +42,47 @@ cp -r "$DRIVER_DIR" "$KERNEL_DIR/security/vpnhide"
 log "Copying include/linux/vpnhide.h..."
 cp "$HEADER" "$KERNEL_DIR/include/linux/vpnhide.h"
 
-# --------------------------------------------------------------------------
-# 3. Apply per-file patches in sorted order
-# --------------------------------------------------------------------------
-PATCH_COUNT=0
-for p in $(ls "$PATCHES_DIR"/*.patch 2>/dev/null | sort); do
-    log "Applying $(basename "$p")..."
-	FUZZ=3
-	if [[ "$VERSION" == "android12-5.4" || "$VERSION" == "upstream-4.19" ]]; then
-		FUZZ=0
-	fi
-	patch -p1 --forward --fuzz="$FUZZ" --no-backup-if-mismatch -d "$KERNEL_DIR" < "$p" \
-        || die "patch failed: $p"
-    PATCH_COUNT=$(( PATCH_COUNT + 1 ))
-done
+# Some Android 4.19 vendor trees backport the later single-argument
+# sock_from_file() API.  This is not inferable from LINUX_VERSION_CODE, so
+# record the source-tree ABI in the copied private header for the wrapper.
+if grep -Eq 'sock_from_file\(struct file \*file\);' "$KERNEL_DIR/include/linux/net.h"; then
+    log "Detected one-argument sock_from_file() API..."
+    sed -i '/#ifdef CONFIG_VPNHIDE/a\
+#define VPNHIDE_SOCK_FROM_FILE_ONE_ARG 1' "$KERNEL_DIR/include/linux/vpnhide.h"
+fi
 
-if [ "$PATCH_COUNT" -eq 0 ]; then
-    die "No .patch files found in $PATCHES_DIR"
+# Android 4.9 vendor trees may backport FRA_UID_RANGE without changing their
+# base version.  The driver must follow the source ABI, not LINUX_VERSION_CODE.
+if grep -q 'uid_range' "$KERNEL_DIR/include/net/fib_rules.h"; then
+    log "Detected fib_rule uid_range ABI..."
+    sed -i '/#ifdef CONFIG_VPNHIDE/a\
+#define VPNHIDE_FIB_RULE_HAS_UID_RANGE 1' "$KERNEL_DIR/include/linux/vpnhide.h"
 fi
 
 # --------------------------------------------------------------------------
-# 4. Version-specific sed fixups for hooks that can't be reliably patched
-#    due to structural differences between kernel sublevels.
+# 3. Inject call sites structurally for every supported profile.
 # --------------------------------------------------------------------------
+case "$VERSION" in
+    android12-5.10|android13-5.10|android13-5.15|android14-5.15|android14-6.1|android15-6.6|android16-6.12|android17-6.18)
+        [ -f "$MODERN_INJECTOR" ] || die "modern injector missing: $MODERN_INJECTOR"
+        log "Injecting modern VPNHide hooks structurally..."
+        python3 "$MODERN_INJECTOR" "$KERNEL_DIR" \
+            || die "modern hook injection failed"
+        log "Done. Applied structural hooks for $VERSION."
+        exit 0
+        ;;
+    android12-5.4|upstream-4.19|upstream-4.14|upstream-4.9)
+        [ -f "$LEGACY_INJECTOR" ] || die "legacy injector missing: $LEGACY_INJECTOR"
+        log "Injecting legacy VPNHide hooks structurally for $VERSION..."
+        python3 "$LEGACY_INJECTOR" "$KERNEL_DIR" "$VERSION" \
+            || die "legacy hook injection failed"
+        log "Done. Applied structural hooks for $VERSION."
+        exit 0
+        ;;
+    *)
+        die "unsupported version '$VERSION'"
+        ;;
+esac
 
 # android12/13-5.10: dev_ifconf loop body varies between sublevels
 # (older: gifconf_list[i] loop; newer: inet_gifconf).
@@ -134,24 +154,15 @@ SOCKET_C="$KERNEL_DIR/net/socket.c"
 if [ -f "$SOCKET_C" ]; then
     log "Applying socket vpnhide hooks in $SOCKET_C..."
     EXTRA_FLAGS=()
-    # Legacy patchsets contain exact socket call-site edits.  The modern
-    # injector assumes post-5.10 syscall shapes and can silently place a hook
-    # in the wrong function on 5.4/4.19.
-    if [[ "$VERSION" != "android12-5.4" && "$VERSION" != "upstream-4.19" ]]; then
-        EXTRA_FLAGS+=("--connect")
-    fi
+    EXTRA_FLAGS+=("--connect")
     if [[ "$VERSION" == "android15-6.6" || "$VERSION" == "android16-6.12" ]]; then
         EXTRA_FLAGS+=("--setsockopt")
     fi
     if [[ "$VERSION" == "android16-6.12" || "$VERSION" == "android17-6.18" ]]; then
         EXTRA_FLAGS+=("--bind-getname")
     fi
-    if [[ "$VERSION" == "android12-5.4" || "$VERSION" == "upstream-4.19" ]]; then
-        log "Legacy socket hooks are already present in the exact patch; skipping injector."
-    else
-        "$SCRIPT_DIR/fix_socket_hooks.py" "$SOCKET_C" "${EXTRA_FLAGS[@]}" \
-            || die "socket hook injection failed for $SOCKET_C"
-    fi
+    "$SCRIPT_DIR/fix_socket_hooks.py" "$SOCKET_C" "${EXTRA_FLAGS[@]}" \
+        || die "socket hook injection failed for $SOCKET_C"
 fi
 
 # Rewrite packet-info immediately before put_cmsg(). This keeps the ancillary
@@ -160,4 +171,4 @@ log "Applying ancillary packet-info hooks..."
 "$SCRIPT_DIR/fix_cmsg_hooks.py" "$KERNEL_DIR" \
 	|| die "ancillary packet-info hook injection failed"
 
-log "Done. Applied $PATCH_COUNT patches for $VERSION."
+log "Done. Applied structural hooks for $VERSION."

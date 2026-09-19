@@ -89,13 +89,17 @@ def _statement_span(lines, start_idx, open_marker):
 
 def fix_bind(lines):
     func_start = _find_function(lines, "int __sys_bind_socket(")
+    legacy_shape = False
     if func_start is None:
-        print("ERROR: __sys_bind_socket not found in socket.c")
+        func_start = _find_function(lines, "int __sys_bind(")
+        legacy_shape = func_start is not None
+    if func_start is None:
+        print("ERROR: bind implementation not found in socket.c")
         return lines
 
     func_end = len(lines)
     for i in range(func_start + 1, len(lines)):
-        if lines[i].startswith("int __sys_bind("):
+        if not legacy_shape and lines[i].startswith("int __sys_bind("):
             func_end = i
             break
 
@@ -105,7 +109,8 @@ def fix_bind(lines):
 
     target_idx = None
     for i in range(func_start, func_end):
-        if "READ_ONCE(sock->ops)->bind(sock," in lines[i]:
+        if ("READ_ONCE(sock->ops)->bind(sock," in lines[i] or
+                "sock->ops->bind(sock," in lines[i]):
             target_idx = i
             break
     if target_idx is None:
@@ -113,7 +118,9 @@ def fix_bind(lines):
         return lines
 
     guard_idx = target_idx - 1
-    if "if (!err)" not in lines[guard_idx]:
+    while guard_idx >= func_start and "if (!err)" not in lines[guard_idx]:
+        guard_idx -= 1
+    if guard_idx < func_start:
         print(
             "ERROR: unexpected code shape before bind() call, aborting bind hook injection"
         )
@@ -128,9 +135,10 @@ def fix_bind(lines):
         lines[guard_idx].rstrip("\n").replace("if (!err)", "if (!err) {") + "\n"
     )
 
+    address_expr = "&address" if legacy_shape else "address"
     hook = [
         "#ifdef CONFIG_VPNHIDE\n",
-        "\t\tvpnhide_bind_pre(sock, (struct sockaddr *)address, addrlen);\n",
+        f"\t\tvpnhide_bind_pre(sock, (struct sockaddr *){address_expr}, addrlen);\n",
         "#endif\n",
     ]
     post_hook = [
@@ -454,7 +462,7 @@ def fix_getsockopt(lines):
     return lines
 
 
-def fix_setsockopt(lines):
+def fix_setsockopt(lines, legacy=False):
     func_start = None
     for i, line in enumerate(lines):
         if "int __sys_setsockopt(" in line:
@@ -480,6 +488,30 @@ def fix_setsockopt(lines):
         if "vpnhide_setsockopt" in lines[i]:
             print("setsockopt hook already present, skipping.")
             return lines
+
+    if legacy:
+        target_idx = None
+        for i in range(func_start, func_end):
+            if "if (sock != NULL) {" in lines[i]:
+                target_idx = i + 1
+                break
+        if target_idx is None:
+            print("ERROR: legacy __sys_setsockopt socket guard not found")
+            return lines
+        hook = [
+            "#ifdef CONFIG_VPNHIDE\n",
+            "\t\t{\n",
+            "\t\t\tint _vret = vpnhide_setsockopt_sock(sock, level, optname, optval, optlen);\n",
+            "\t\t\tif (_vret) {\n",
+            "\t\t\t\terr = (_vret > 0) ? 0 : _vret;\n",
+            "\t\t\t\tgoto out_put;\n",
+            "\t\t\t}\n",
+            "\t\t}\n",
+            "#endif\n",
+        ]
+        lines = lines[:target_idx] + hook + lines[target_idx:]
+        print(f"legacy setsockopt hook injected after socket guard at line {target_idx}")
+        return lines
 
     # 0. CLASS(fd, f) scoped-cleanup shape: `return do_sock_setsockopt(...);`
     #    directly, no separate err var, nothing to fput_light -- the pre-hook
@@ -557,7 +589,7 @@ def fix_setsockopt(lines):
 def main():
     if len(sys.argv) < 2:
         print(
-            "Usage: fix_socket_hooks.py <socket.c path> [--setsockopt] [--connect] [--bind-getname]"
+            "Usage: fix_socket_hooks.py <socket.c path> [--setsockopt] [--connect] [--bind-getname] [--legacy]"
         )
         sys.exit(1)
 
@@ -566,13 +598,14 @@ def main():
     do_setsockopt = "--setsockopt" in flags
     do_connect = "--connect" in flags
     do_bind_getname = "--bind-getname" in flags
+    legacy = "--legacy" in flags
 
     with open(file_path, "r") as f:
         lines = f.readlines()
 
     lines = fix_getsockopt(lines)
     if do_setsockopt:
-        lines = fix_setsockopt(lines)
+        lines = fix_setsockopt(lines, legacy=legacy)
     if do_connect:
         lines = fix_connect(lines)
     lines = fix_listen(lines)
