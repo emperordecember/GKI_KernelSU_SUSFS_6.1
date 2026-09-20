@@ -1015,6 +1015,11 @@ jobs:
           enable_config CONFIG_IPC_NS
           enable_config CONFIG_PID_NS
           enable_config CONFIG_DEVTMPFS
+          # User namespaces: upstream documents as optional but recommended,
+          # fixes the docker unsafe procfs error. kABI-safe: struct cred's
+          # user_ns/ucounts are unconditional members and no struct layout
+          # shifts (unlike SYSVIPC/IPC_NS), so no padding patch needed.
+          enable_config CONFIG_USER_NS
 
           # Optional: network-related config (Docker/NAT mode)
           enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
@@ -1047,12 +1052,8 @@ jobs:
           }
 
           if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
-            # 1. User namespace: stay DISABLED (2.5.0 policy). Stock GKI ships it
-            # off; keeping it off avoids the /proc/self/uid_map root-detection
-            # vector (see soranerai/GKI_KernelSU_SUSFS#6). Droidspaces doesn't
-            # hard-require it for its NTSync/container core.
-            disable_config CONFIG_USER_NS
-            # 2. Disable Android strict network control (required)
+            # Disable Android strict network control (required), otherwise
+            # regular users inside containers cannot reach the network
             disable_config CONFIG_ANDROID_PARANOID_NETWORK
           fi
 
