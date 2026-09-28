@@ -19,6 +19,16 @@ on:
         required: false
         type: string
         default: "disabled"
+      android_version:
+        description: "Android version (android12..android16) for NoMount .ko selection"
+        required: false
+        type: string
+        default: ""
+      kernel_version:
+        description: "Kernel version (5.10/5.15/6.1/6.6/6.12) for NoMount .ko selection"
+        required: false
+        type: string
+        default: ""
       use_vpnhide:
         description: "Attach VPNHide Next companion (apk + bridge root module) when enabled"
         required: false
@@ -405,8 +415,29 @@ jobs:
           ARTIFACTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           "https://api.github.com/repos/$REPO/actions/runs/$BUILD_ID/artifacts")
 
-          DOWNLOAD_URL=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].archive_download_url')
-          NAME=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].name')
+          # NoMount's CI publishes one .ko per kernel (nomount-android14-6.1,
+          # nomount-android13-5.15, ...). artifacts[0] is NOT stable across
+          # runs, so pick the artifact matching our android/kernel instead.
+          # Mountify publishes a single versioned artifact; use it as-is.
+          if [ "${{ inputs.nomount }}" == "mountify" ]; then
+            NAME=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].name')
+            DOWNLOAD_URL=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].archive_download_url')
+          else
+            EXPECTED="nomount-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+            if [ -z "${{ inputs.android_version }}" ] || [ -z "${{ inputs.kernel_version }}" ]; then
+              echo "::warning::android_version/kernel_version not provided; falling back to artifacts[0]"
+              NAME=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].name')
+              DOWNLOAD_URL=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].archive_download_url')
+            else
+              NAME=$(echo "$ARTIFACTS" | jq -r --arg want "$EXPECTED" '.artifacts[] | select(.name == $want) | .name' | head -n1)
+              DOWNLOAD_URL=$(echo "$ARTIFACTS" | jq -r --arg want "$EXPECTED" '.artifacts[] | select(.name == $want) | .archive_download_url' | head -n1)
+              if [ -z "$NAME" ]; then
+                echo "::warning::no artifact matching '$EXPECTED' in run $BUILD_ID; skipping module attachment"
+                exit 0
+              fi
+              echo "Selected NoMount artifact: $NAME"
+            fi
+          fi
 
           if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ] || [ -z "$NAME" ] || [ "$NAME" == "null" ]; then
             echo "::warning::module artifact not found, skipping"

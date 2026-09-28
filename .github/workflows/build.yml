@@ -328,6 +328,23 @@ jobs:
           if grep -q deprecated <<< $REMOTE_BRANCH; then
             echo "Detected deprecated branch: $FORMATTED_BRANCH"
             sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+          elif [ -z "$REMOTE_BRANCH" ]; then
+            # Google retires old monthly branches entirely (neither live nor
+            # under deprecated/), while the manifest still points at the
+            # branch. Release tags survive, so fall back to the highest _rN
+            # tag. A bare tag name is resolved by repo as refs/heads/<name>,
+            # so the refs/tags/ full path is required.
+            echo "Branch $FORMATTED_BRANCH no longer exists upstream, looking for a release tag..."
+            LATEST_TAG=$(git ls-remote https://android.googlesource.com/kernel/common "refs/tags/${FORMATTED_BRANCH}_r*" 2>/dev/null \
+              | awk '{print $2}' | grep -v '\^{}$' | sed 's|refs/tags/||' \
+              | awk -F'_r' '{print $NF+0, $0}' | sort -n | tail -n 1 | cut -d' ' -f2- || true)
+            if [ -z "$LATEST_TAG" ]; then
+              echo "::error::Branch $FORMATTED_BRANCH has no branch and no release tag upstream"
+              exit 1
+            fi
+            echo "Falling back to release tag: $LATEST_TAG"
+            sed -i "/path=\"common\"/ s|revision=\"${FORMATTED_BRANCH}\"|revision=\"refs/tags/${LATEST_TAG}\"|" $DEFAULT_MANIFEST_PATH
+            echo "TAG_FALLBACK=$LATEST_TAG" >> $GITHUB_ENV
           fi
 
           $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
@@ -1390,6 +1407,35 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
+
+      # SUSFS-enabled KernelSU forks (pershoot KernelSU-Next dev-susfs, ...)
+      # declare 'config KSU_SUSFS ... default y' in their own Kconfig. With
+      # enable_susfs off we skip the SUSFS patch, so linux/susfs.h never lands
+      # in include/linux, but the Kconfig default still turns CONFIG_KSU_SUSFS
+      # on -> drivers/kernelsu/core/init.c fails with
+      # "fatal error: 'linux/susfs.h' file not found". Pin it off explicitly
+      # so the #ifdef CONFIG_KSU_SUSFS blocks compile out.
+      - name: Force-disable SUSFS config when enable_susfs is off
+        if: ${{ !inputs.enable_susfs }}
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          # KernelSU setup.sh links the driver dir as common/drivers/kernelsu
+          # -> <repo>/kernel (pershoot KernelSU-Next lives in KernelSU-Next/,
+          # SukiSU in KernelSU/, ...), so the symlink is the stable probe path.
+          KSU_KCONFIG="drivers/kernelsu/Kconfig"
+          if grep -E '^[[:space:]]*(menuconfig|config)[[:space:]]+KSU_SUSFS([[:space:]]|$)' "$KSU_KCONFIG" 2>/dev/null; then
+            if grep -q '^# CONFIG_KSU_SUSFS is not set$' "$DEFCONFIG"; then
+              echo "  CONFIG_KSU_SUSFS already disabled"
+            elif grep -q '^CONFIG_KSU_SUSFS=y$' "$DEFCONFIG"; then
+              sed -i 's/^CONFIG_KSU_SUSFS=y$/# CONFIG_KSU_SUSFS is not set/' "$DEFCONFIG"
+              echo "  Forced off CONFIG_KSU_SUSFS"
+            else
+              echo "# CONFIG_KSU_SUSFS is not set" >> "$DEFCONFIG"
+              echo "  Added CONFIG_KSU_SUSFS is not set"
+            fi
+          else
+            echo "  KSU_SUSFS not present in this KernelSU variant, nothing to disable"
+          fi
 
       - name: Configure kernel name
         working-directory: ${{ env.KERNEL_ROOT }}

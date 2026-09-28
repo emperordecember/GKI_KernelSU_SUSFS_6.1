@@ -296,3 +296,5 @@ jobs:
       susfs: ${{ inputs.susfs || 'enabled' }}
       nomount: ${{ inputs.nomount || 'disabled' }}
       use_vpnhide: ${{ inputs.use_vpnhide || false }}
+      android_version: "android14"
+      kernel_version: "6.1"
