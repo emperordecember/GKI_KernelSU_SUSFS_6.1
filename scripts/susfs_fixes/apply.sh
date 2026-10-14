@@ -33,7 +33,19 @@ case "$KSU_VARIANT" in
     echo "Next/SukiSU/SukiSU(40726)/SukiSU(40548)/BakaSU(ReSukiSU) use built-in SUSFS support"
     ;;
   "XXKSU")
-    echo "::warning::SUSFS patch is incompatible with XXKSU (unity-build kernel/Makefile, no kernel/Kbuild). Skipping SUSFS; kernel builds without SUSFS hooks."
+    # backslashxx/kernelsu is a unity-build fork: the official SUSFS patch is
+    # inline-hook based and its KernelSU-side integration does not fit.
+    # Ported from midori01/gki_ksu_workflow: apply the SUSFS kernel patch in
+    # de-inlined form (see the final apply below) and integrate SUSFS on the
+    # KernelSU side with midori01/KernelSU's xx~1.patch + xx.patch.
+    echo "XXKSU: SUSFS via de-inlined patch + midori01 KernelSU patches"
+    XXKSU_SUSFS=1
+    if [ -d ./KernelSU ]; then
+      ( cd ./KernelSU
+        curl -sSfL "https://github.com/midori01/KernelSU/commit/xx~1.patch" -o /tmp/xx~1.patch \
+          && patch -p1 --forward < /tmp/xx~1.patch || true
+      )
+    fi
     ;;
 esac
 
@@ -145,7 +157,25 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
   fi
 fi
 
-patch -p1 < "$SUSFS_PATCH" || true
+if [ "${XXKSU_SUSFS:-0}" = "1" ]; then
+  DEINLINE="$GITHUB_WORKSPACE/scripts/susfs_fixes/susfs_deinlined.sh"
+  if [ -f "$DEINLINE" ]; then
+    echo "XXKSU: converting SUSFS patch to de-inlined form"
+    bash "$DEINLINE" "$SUSFS_PATCH" deinlined.patch
+    patch -p1 < deinlined.patch || true
+  else
+    echo "::warning::susfs_deinlined.sh not found; applying inline SUSFS patch for XXKSU"
+    patch -p1 < "$SUSFS_PATCH" || true
+  fi
+  if [ -d "$KERNEL_ROOT/KernelSU" ]; then
+    ( cd "$KERNEL_ROOT/KernelSU"
+      curl -sSfL "https://github.com/midori01/KernelSU/commit/xx.patch" -o /tmp/xx.patch \
+        && patch -p1 --forward < /tmp/xx.patch || true
+    )
+  fi
+else
+  patch -p1 < "$SUSFS_PATCH" || true
+fi
 
 # Revert the temporary context after the main patch is applied, to avoid unrelated source diffs leaking into the final artifact
 if [[ "$ANDROID_VERSION" == "android12" && "$KERNEL_VERSION" == "5.10" ]]; then
