@@ -107,6 +107,14 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "BakaSU(ReSukiSU)" ]; then
             echo "This is the BakaSU(ReSukiSU) variant"
             git clone https://github.com/Baka-SU/BakaSU.git KernelSU
+            # build.yml builds the kernel from the SUSFS-synced branch when SUSFS
+            # is enabled, so compute the KSU version from the same branch,
+            # otherwise the manager version drifts from the kernel driver version
+            # (e.g. 35229 vs 35231).
+            if [ "${{ inputs.susfs }}" == "enabled" ]; then
+              echo "Checking out sync-susfs (matches the kernel branch)"
+              git -C KernelSU checkout sync-susfs
+            fi
           elif [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "This is the Official"
             git clone https://github.com/tiann/KernelSU.git KernelSU
