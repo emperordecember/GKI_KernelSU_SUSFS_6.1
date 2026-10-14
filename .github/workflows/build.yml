@@ -509,13 +509,24 @@ jobs:
               BRANCH=""
               ;;
             "RKSU")
-              BRANCH="-s main"
+              # SUSFS-capable RKSU lives in the 'susfs-rksu-master' branch.
+              if [ "${{ inputs.enable_susfs }}" = "false" ]; then
+                BRANCH="-s main"
+              else
+                BRANCH="-s susfs-rksu-master"
+              fi
               ;;
             "KowSU")
+              # KowSU has no SUSFS support (no KSU_SUSFS, no SUSFS branch).
               BRANCH="-s master"
               ;;
             "FinaSU (FolkSU)")
-              BRANCH="-s master"
+              # SUSFS-capable FinaSU lives in the 'susfs2_GKI' branch.
+              if [ "${{ inputs.enable_susfs }}" = "false" ]; then
+                BRANCH="-s master"
+              else
+                BRANCH="-s susfs2_GKI"
+              fi
               ;;
             "no root manager")
               BRANCH=""
@@ -762,7 +773,7 @@ jobs:
           echo "Updated get_ksu_version_full template: $VERSION_TEMPLATE"
 
       - name: Apply SUSFS patch
-        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager'
+        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           ANDROID_VERSION: ${{ inputs.android_version }}
@@ -777,6 +788,24 @@ jobs:
         run: |
           echo "Applying SUSFS patch via scripts/susfs_fixes/apply.sh..."
           bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" || { echo "::error::SUSFS apply.sh failed"; exit 1; }
+      - name: KowSU SUSFS notice
+        if: inputs.enable_susfs && inputs.ksu_variant == 'KowSU'
+        run: |
+          echo "::warning::KowSU has no SUSFS support (no KSU_SUSFS, no SUSFS branch); the kernel is built without SUSFS hooks. Use susfs=disabled to silence this."
+      - name: Fix KernelSU SUSFS build compatibility
+        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager'
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          # SukiSU 'builtin' pkg_observer.c calls
+          #   track_throne(TRACK_THRONE_FORCE_SYNCHRONOUS)
+          # but the header only declares track_throne(bool prune_only), so the
+          # stale token is undefined upstream. Map it to false (full scan),
+          # matching KernelSU-Next's track_throne(false) in the same code path.
+          PKG_OBS="common/drivers/kernelsu/manager/pkg_observer.c"
+          if [ -f "$PKG_OBS" ] && grep -q 'TRACK_THRONE_FORCE_SYNCHRONOUS' "$PKG_OBS"; then
+            sed -i 's/TRACK_THRONE_FORCE_SYNCHRONOUS/false/g' "$PKG_OBS"
+            echo "Patched pkg_observer.c: TRACK_THRONE_FORCE_SYNCHRONOUS -> false"
+          fi
       - name: Un-static KernelSU selinux helpers for SUSFS 6.12
         if: inputs.enable_susfs && inputs.kernel_version == '6.12'
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -1427,7 +1456,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Add SUSFS config
-        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager'
+        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU'
         run: |
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_KSU_SUSFS=y

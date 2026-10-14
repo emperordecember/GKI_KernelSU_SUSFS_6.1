@@ -15,9 +15,8 @@ cp $SUSFS4KSU/kernel_patches/fs/* ./common/fs/
 cp $SUSFS4KSU/kernel_patches/include/linux/* ./common/include/linux/
 
 case "$KSU_VARIANT" in
-  "Official"|"RKSU"|"KowSU"|"FinaSU (FolkSU)")
-    # official-style forks (tiann/KernelSU layout): integrate SUSFS via the
-    # KernelSU-side patch.
+  "Official")
+    # tiann/KernelSU: integrate SUSFS via the KernelSU-side patch.
     cd ./KernelSU
     cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
     # Legacy patch compatibility: only rewrite to kernel/Kbuild if the patch still targets kernel/Makefile only
@@ -29,8 +28,11 @@ case "$KSU_VARIANT" in
 
     cd ..
     ;;
-  "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"BakaSU(ReSukiSU)")
-    echo "Next/SukiSU/SukiSU(40726)/SukiSU(40548)/BakaSU(ReSukiSU) use built-in SUSFS support"
+  "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"BakaSU(ReSukiSU)"|"RKSU"|"FinaSU (FolkSU)")
+    echo "$KSU_VARIANT uses built-in SUSFS support (no KernelSU-side patch)"
+    ;;
+  "KowSU")
+    echo "::warning::KowSU has no SUSFS support (no KSU_SUSFS, no SUSFS branch); building without SUSFS hooks."
     ;;
   "XXKSU")
     # backslashxx/kernelsu is a unity-build fork: the official SUSFS patch is
@@ -245,7 +247,7 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
   fi
 fi
 
-if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "RKSU" ] || [ "$KSU_VARIANT" == "KowSU" ] || [ "$KSU_VARIANT" == "FinaSU (FolkSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
+if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "RKSU" ] || [ "$KSU_VARIANT" == "FinaSU (FolkSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
   fix_namespace_susfs_mount_decls() {
     local label="$1"
     local marker_pattern="$2"
