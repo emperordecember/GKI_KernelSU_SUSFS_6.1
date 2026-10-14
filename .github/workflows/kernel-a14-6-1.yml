@@ -26,9 +26,9 @@ on:
           - SukiSU
           - SukiSU(40726)
           - SukiSU(40548)
-          - ReSukiSU
+          - BakaSU(ReSukiSU)
           - XXKSU
-        default: ReSukiSU
+        default: BakaSU(ReSukiSU)
       susfs:
         description: "SUSFS mount hiding"
         required: false
@@ -57,14 +57,14 @@ on:
         type: string
         default: "Sun Dec 01 08:10:00 UTC 2024"
       use_kpm:
-        description: "KPM support (patched mode not supported yet)"
+        description: "KPM support (enabled = KSU CONFIG_KPM, patched = inject KernelPatch)"
         required: true
         type: choice
         default: "disabled"
         options:
           - "disabled"
           - "enabled"
-          - "patched (not supported yet)"
+          - "patched (inject KernelPatch)"
       droidspaces:
         description: "Droidspaces container support"
         required: false
@@ -89,7 +89,7 @@ on:
         type: boolean
         default: false
       use_zram:
-        description: "Enable enhanced ZRAM algorithm (forced off automatically for ReSukiSU — see note below, known bootloop bug)"
+        description: "Enable enhanced ZRAM algorithm (forced off automatically for BakaSU(ReSukiSU) — see note below, known bootloop bug)"
         required: true
         type: boolean
         default: false

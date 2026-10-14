@@ -16,10 +16,10 @@ on:
         required: true
         type: string
       ksu_variant:
-        description: "KernelSU variant (ReSukiSU/Official/SukiSU/Next). Only 'ReSukiSU' is a tested combination against this device tree (it implements the SUSFS bridge natively in kernel/feature/sucompat.c). Other variants may build but are not confirmed working here."
+        description: "KernelSU variant (BakaSU(ReSukiSU)/Official/SukiSU/Next). Only 'BakaSU(ReSukiSU)' is a tested combination against this device tree (it implements the SUSFS bridge natively in kernel/feature/sucompat.c). Other variants may build but are not confirmed working here."
         required: false
         type: string
-        default: "ReSukiSU"
+        default: "BakaSU(ReSukiSU)"
       use_bbg:
         description: "Enable BBG (Baseband Guard, anti-brick)"
         required: false
@@ -129,7 +129,7 @@ jobs:
           fi
 
           case "$variant_input" in
-            "Official"|"ReSukiSU")
+            "Official"|"BakaSU(ReSukiSU)")
               BRANCH="-s main"
               ;;
             "SukiSU")
@@ -219,9 +219,9 @@ jobs:
           cd "$CONFIG"
 
           case "${{ inputs.ksu_variant }}" in
-            "ReSukiSU")
-              echo "Adding ReSukiSU (primary, tested combination)..."
-              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash $BRANCH
+            "BakaSU(ReSukiSU)")
+              echo "Adding BakaSU(ReSukiSU) (primary, tested combination)..."
+              curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash $BRANCH
               ;;
             "Next")
               echo "Adding KernelSU-Next (SUSFS bridge via ksun compat patch below)..."
@@ -241,16 +241,16 @@ jobs:
               ;;
           esac
 
-      - name: Apply ReSukiSU static symbol exports
+      - name: Apply BakaSU(ReSukiSU) static symbol exports
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
 
-          # ReSukiSU's static_export_check.mk hard-fails the build when
+          # BakaSU(ReSukiSU)'s static_export_check.mk hard-fails the build when
           # CONFIG_KALLSYMS_ALL is off (Sultan disables it) unless these symbols
           # are made non-static in security/selinux/selinuxfs.c:
           #   - write_op            (note: Sultan has 'static ssize_t (*const write_op[])',
-          #     the extra 'const' slipped past ReSukiSU's exact grep and was wrongly
+          #     the extra 'const' slipped past BakaSU(ReSukiSU)'s exact grep and was wrongly
           #     reported as exported; make it actually non-static too)
           #   - sel_handle_status_ops
           patch -p1 --fuzz=0 < $GITHUB_WORKSPACE/.github/patches/sultan/sultan-resukisu-selinux-export.patch
@@ -268,7 +268,7 @@ jobs:
 
           patch -p1 --fuzz=0 < $GITHUB_WORKSPACE/.github/patches/sultan/sultan-susfs-a14-6.1.patch
 
-          # KernelSU-Next needs the ksun compat bridge for SUSFS; ReSukiSU provides
+          # KernelSU-Next needs the ksun compat bridge for SUSFS; BakaSU(ReSukiSU) provides
           # the same bridge natively (kernel/feature/sucompat.c) so nothing is
           # needed for it. Other variants are untested on this device tree.
           if [ "${{ inputs.ksu_variant }}" == "Next" ] && [ -d "KernelSU-Next" ]; then
@@ -363,7 +363,7 @@ jobs:
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
 
-          # ReSukiSU selects the KernelSU hooking method via a Kconfig choice
+          # BakaSU(ReSukiSU) selects the KernelSU hooking method via a Kconfig choice
           # (drivers/kernelsu/Kconfig). With susfs=enabled the choice is
           # forced to KSU_SUSFS (inline hook) and the tracepoint files are never
           # compiled. Without SUSFS (nomount) the choice falls back to the default
@@ -374,7 +374,7 @@ jobs:
           # zumapro_defconfig leaves it off, so vmlinux failed to link with an
           # undefined reference.
           #
-          # KSU_MANUAL_HOOK is not a viable alternative here: ReSukiSU's
+          # KSU_MANUAL_HOOK is not a viable alternative here: BakaSU(ReSukiSU)'s
           # tools/manual_hook_check.mk hard-requires ksu_handle_execveat (fs/exec.c),
           # ksu_handle_faccessat (fs/open.c), ksu_handle_stat/ksu_handle_newfstat_ret/
           # ksu_handle_fstat64_ret (fs/stat.c) and ksu_handle_sys_reboot
@@ -478,7 +478,7 @@ jobs:
           # where LTO defers the check; with LTO_NONE it fails the build otherwise.
           perl -0pi -e 's/\tif \(cb\) \{\n\t\t\/\* copy data to destination buffer \*\//\tif (cb \&\& dst_buf) {\n\t\t\/\* copy data to destination buffer \*\//g' google-modules/soc/gs/drivers/soc/google/gsa/gsa_core.c
 
-          # ReSukiSU kernel/feature/adb_root.c calls current_user_stack_pointer()
+          # BakaSU(ReSukiSU) kernel/feature/adb_root.c calls current_user_stack_pointer()
           # (via user_stack_pointer(current_pt_regs()) -> task_pt_regs() ->
           # task_stack_page()) but does NOT include <linux/sched/task_stack.h>.
           # On stock GKI the declaration leaks in transitively, but in the Sultan

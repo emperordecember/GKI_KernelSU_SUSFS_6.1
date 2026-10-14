@@ -113,6 +113,9 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+      # Pinned bmax121/KernelPatch release used by the "patched" KPM mode.
+      # Includes the BTF struct/offset API (PR #284, merged 2026-10-14).
+      KPM_VERSION: "0.13.9"
 
     steps:
       - name: Build info summary
@@ -458,7 +461,7 @@ jobs:
           variant_input="${{ inputs.ksu_variant }}"
 
           case "$variant_input" in
-            "Official"|"ReSukiSU")
+            "Official"|"BakaSU(ReSukiSU)")
               BRANCH="-s main"
               ;;
             "SukiSU")
@@ -546,9 +549,9 @@ jobs:
               echo "Adding ${{ inputs.ksu_variant }}..."
               curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
               ;;
-            "ReSukiSU")
-              echo "Adding ReSukiSU..."
-              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash $BRANCH
+            "BakaSU(ReSukiSU)")
+              echo "Adding BakaSU(ReSukiSU)..."
+              curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash $BRANCH
               ;;
             *)
               if [ -z "$LEGACY_SUKISU_CONFIG" ]; then
@@ -567,7 +570,7 @@ jobs:
             echo "KSU_LATEST_COMMIT_DATE=unknown" >> $GITHUB_ENV
           fi
 
-      # This runs for every variant, not just ReSukiSU: the two ZRAM steps further below
+      # This runs for every variant, not just BakaSU(ReSukiSU): the two ZRAM steps further below
       # only ever ADD config when use_zram is true, they never actively turn ZRAM off.
       # If ZRAM already ships enabled in the stock gki_defconfig, or a KSU variant's own
       # setup.sh pins its own zram/zsmalloc config, "disabled" here would otherwise be a
@@ -1317,13 +1320,21 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
-            if [[ "${{ inputs.use_kpm }}" == enabled* ]] || [[ "${{ inputs.use_kpm }}" == patched* ]]; then
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "BakaSU(ReSukiSU)" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
+            if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
+              # "enabled": the KSU fork must provide its own KPM (CONFIG_KPM).
               if ! grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
-                echo "Error: KPM was requested, but the current KernelSU source doesn't declare CONFIG_KPM" >&2
+                echo "Error: use_kpm=enabled requires CONFIG_KPM in the KernelSU source (only SukiSU declares it); use 'patched (inject KernelPatch)' for ${{ inputs.ksu_variant }}." >&2
                 exit 1
               fi
               echo "CONFIG_KPM=y" >> "$DEFCONFIG"
+            elif [[ "${{ inputs.use_kpm }}" == patched* ]]; then
+              # "patched": KernelPatch is injected into the built Image later.
+              # Enable the fork's own CONFIG_KPM too if it happens to exist,
+              # but it is not required.
+              if grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
+                echo "CONFIG_KPM=y" >> "$DEFCONFIG"
+              fi
             fi
           fi
 
@@ -1331,12 +1342,12 @@ jobs:
           if [[ ! "$CURRENT_SUB" =~ ^[0-9]+$ ]]; then
             CURRENT_SUB=99999
           fi
-          if [[ "${{ inputs.ksu_variant }}" == "ReSukiSU" && "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "$CURRENT_SUB" -ge 74 && "$CURRENT_SUB" -le 137 ]]; then
+          if [[ "${{ inputs.ksu_variant }}" == "BakaSU(ReSukiSU)" && "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "$CURRENT_SUB" -ge 74 && "$CURRENT_SUB" -le 137 ]]; then
             {
               echo "CONFIG_KALLSYMS=y"
               echo "CONFIG_KALLSYMS_ALL=y"
             } >> "$DEFCONFIG"
-            # Fix for 5.15.74~5.15.137: kallsyms_on_each_symbol is only compiled under LIVEPATCH, causing ReSukiSU link failures
+            # Fix for 5.15.74~5.15.137: kallsyms_on_each_symbol is only compiled under LIVEPATCH, causing BakaSU(ReSukiSU) link failures
             KALLSYMS_C="./common/kernel/kallsyms.c"
             if [ -f "$KALLSYMS_C" ] \
               && grep -qF 'int kallsyms_on_each_symbol' "$KALLSYMS_C" \
@@ -1593,26 +1604,64 @@ jobs:
           retention-days: 7
           compression-level: 9
 
-      # - name: Apply KPM patch (SukiSU/ReSukiSU/Next)
-      #   if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
-      #   run: |
-      #     case "${{ inputs.android_version }}" in
-      #       "android12"|"android13")
-      #         if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
-      #           TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-      #         fi
-      #         ;;
-      #       "android14"|"android15"|"android16")
-      #         TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
-      #         ;;
-      #     esac
+      # ==================== KPM (KernelPatch Module) ====================
+      # Two ways to get KPM support:
+      #   * "enabled"  -> the KSU fork declares 'config KPM' itself (SukiSU), we
+      #                   just set CONFIG_KPM=y in "Configure kernel options".
+      #   * "patched"  -> any KSU fork (BakaSU(ReSukiSU), Next, ...). We inject
+      #                   KernelPatch into the *built* Image with the current
+      #                   kptools/kpimg from bmax121/KernelPatch, exactly like
+      #                   APatch's boot_patch.sh does:
+      #                       kptools -p -i <Image> -k <kpimg> -o <out>
+      # The patched path used to rely on the stale SukiSU_patch/kpm/patch_linux
+      # blob; it now pulls the pinned KernelPatch release (BTF API, PR #284).
+      - name: Apply KernelPatch (KPM) to Image
+        if: startsWith(inputs.use_kpm, 'patched')
+        run: |
+          set -euo pipefail
 
-      #     cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
-      #     cd "$TARGET_PATH"
-      #     chmod 777 patch
-      #     ./patch
-      #     rm -rf Image
-      #     mv oImage Image
+          case "${{ inputs.android_version }}" in
+            "android12"|"android13")
+              TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+              ;;
+            "android14"|"android15"|"android16")
+              TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+              ;;
+            *)
+              echo "::error::Unsupported android version for KPM: ${{ inputs.android_version }}"
+              exit 1
+              ;;
+          esac
+
+          IMAGE="$TARGET_PATH/Image"
+          if [ ! -f "$IMAGE" ]; then
+            echo "::error::Kernel Image not found for KPM patch: $IMAGE"
+            exit 1
+          fi
+
+          TOOLS="$RUNNER_TEMP/kpatch"
+          mkdir -p "$TOOLS"
+          BASE="https://github.com/bmax121/KernelPatch/releases/download/${KPM_VERSION}"
+          echo "Downloading KernelPatch ${KPM_VERSION} (kptools-linux + kpimg-android)..."
+          curl -fL --retry 3 -o "$TOOLS/kptools" "$BASE/kptools-linux"
+          curl -fL --retry 3 -o "$TOOLS/kpimg"   "$BASE/kpimg-android"
+          chmod +x "$TOOLS/kptools"
+
+          # kptools refuses to patch kernels without kallsyms (KPM needs symbols).
+          if ! "$TOOLS/kptools" -i "$IMAGE" -f | grep -q 'CONFIG_KALLSYMS=y'; then
+            echo "::error::Kernel Image has no CONFIG_KALLSYMS=y; KPM (patched) cannot work."
+            exit 1
+          fi
+
+          cd "$TARGET_PATH"
+          "$TOOLS/kptools" -p -i Image -k "$TOOLS/kpimg" -o Image.kpm
+          if [ ! -f Image.kpm ]; then
+            echo "::error::kptools did not produce Image.kpm"
+            exit 1
+          fi
+
+          mv -f Image.kpm Image
+          echo "KernelPatch ${KPM_VERSION} (KPM) injected into $TARGET_PATH/Image"
 
       - name: Prepare boot image
         run: |

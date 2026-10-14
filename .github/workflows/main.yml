@@ -40,11 +40,11 @@ on:
           - SukiSU
           - SukiSU(40726)
           - SukiSU(40548)
-          - ReSukiSU
+          - BakaSU(ReSukiSU)
           - Official
           - Next
           - XXKSU
-        default: ReSukiSU
+        default: BakaSU(ReSukiSU)
       susfs:
         description: "SUSFS mount hiding"
         type: choice
@@ -75,13 +75,13 @@ on:
         required: false
       # ==================== Option configuration ====================
       use_kpm:
-        description: "KPM support (patched mode not supported yet)"
+        description: "KPM support (enabled = KSU CONFIG_KPM, patched = inject KernelPatch)"
         type: choice
         default: "disabled"
         options:
           - "disabled"
           - "enabled"
-          - "patched (not supported yet)"
+          - "patched (inject KernelPatch)"
       droidspaces:
         description: "Droidspaces container support (5.10~6.6: slot patch, 6.12: on/off)"
         type: choice
@@ -358,7 +358,7 @@ jobs:
             "XXKSU")     KSU_NAME="XXKSU" ;;
             "Official")  KSU_NAME="KernelSU" ;;
             "SukiSU")    KSU_NAME="SukiSU" ;;
-            "ReSukiSU")  KSU_NAME="ReSukiSU" ;;
+            "BakaSU(ReSukiSU)")  KSU_NAME="BakaSU(ReSukiSU)" ;;
           esac
           echo "KSU_NAME=$KSU_NAME" >> $GITHUB_ENV
 
@@ -374,13 +374,13 @@ jobs:
           if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
             echo "KPM_STATUS=supported" >> $GITHUB_ENV
           elif [[ "${{ inputs.use_kpm }}" == patched* ]]; then
-            echo "KPM_STATUS=supported (patch not supported yet)" >> $GITHUB_ENV
+            echo "KPM_STATUS=supported (KernelPatch)" >> $GITHUB_ENV
           else
             echo "KPM_STATUS=disabled" >> $GITHUB_ENV
           fi
 
           # Hook type
-          if [ "${{ inputs.kernelsu_variant }}" = "SukiSU" ] || [ "${{ inputs.kernelsu_variant }}" = "ReSukiSU" ]; then
+          if [ "${{ inputs.kernelsu_variant }}" = "SukiSU" ] || [ "${{ inputs.kernelsu_variant }}" = "BakaSU(ReSukiSU)" ]; then
             echo "HOOK_TYPE=SUSFS Inline Hooks" >> $GITHUB_ENV
           else
             echo "HOOK_TYPE=KPROBE Hooks" >> $GITHUB_ENV
@@ -434,7 +434,7 @@ jobs:
                 BRANCH="builtin"
               fi
               ;;
-            "ReSukiSU") BRANCH="main" ;;
+            "BakaSU(ReSukiSU)") BRANCH="main" ;;
             "Next") BRANCH="dev" ;;
             "XXKSU") BRANCH="master" ;;
             *) echo "Error: unknown variant" >&2; exit 1 ;;
@@ -451,7 +451,7 @@ jobs:
             "Next") REPO_URL="https://github.com/KernelSU-Next/KernelSU-Next.git"; REPO_URL2="KernelSU-Next/KernelSU-Next" ;;
             "XXKSU") REPO_URL="https://github.com/backslashxx/KernelSU.git"; REPO_URL2="backslashxx/KernelSU" ;;
             "SukiSU") REPO_URL="https://github.com/SukiSU-Ultra/SukiSU-Ultra.git"; REPO_URL2="SukiSU-Ultra/SukiSU-Ultra" ;;
-            "ReSukiSU") REPO_URL="https://github.com/ReSukiSU/ReSukiSU.git"; REPO_URL2="ReSukiSU/ReSukiSU" ;;
+            "BakaSU(ReSukiSU)") REPO_URL="https://github.com/Baka-SU/BakaSU.git"; REPO_URL2="Baka-SU/BakaSU" ;;
           esac
 
           if [ "${{ inputs.kernelsu_variant }}" = "SukiSU" ] && [ -f "config/config" ]; then

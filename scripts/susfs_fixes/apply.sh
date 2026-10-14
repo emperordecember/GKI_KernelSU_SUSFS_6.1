@@ -27,8 +27,8 @@ case "$KSU_VARIANT" in
 
     cd ..
     ;;
-  "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"ReSukiSU")
-    echo "Next/SukiSU/SukiSU(40726)/SukiSU(40548)/ReSukiSU use built-in SUSFS support"
+  "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"BakaSU(ReSukiSU)")
+    echo "Next/SukiSU/SukiSU(40726)/SukiSU(40548)/BakaSU(ReSukiSU) use built-in SUSFS support"
     ;;
   "XXKSU")
     echo "::warning::SUSFS patch is incompatible with XXKSU (unity-build kernel/Makefile, no kernel/Kbuild). Skipping SUSFS; kernel builds without SUSFS hooks."
@@ -213,7 +213,7 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
   fi
 fi
 
-if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "ReSukiSU" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
+if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
   fix_namespace_susfs_mount_decls() {
     local label="$1"
     local marker_pattern="$2"
@@ -358,7 +358,7 @@ fi
       # SUSFS 6.12 (gki-android16-6.12) calls security_{context_to_sid,
       # sid_to_context,compute_av_user}_with_policy from the kernel as extern
       # symbols. KernelSU forks keep them static (pershoot KernelSU-Next
-      # dev-susfs, SukiSU, ReSukiSU, ...); a static forward declaration gives
+      # dev-susfs, SukiSU, BakaSU(ReSukiSU), ...); a static forward declaration gives
       # the whole definition static linkage, so vmlinux fails to link with
       # "undefined symbol". Official KernelSU applies 10_enable_susfs_for_ksu
       # .patch which un-statics them; the other variants don't, so strip
