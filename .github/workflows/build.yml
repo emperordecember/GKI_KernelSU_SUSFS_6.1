@@ -487,6 +487,18 @@ jobs:
             "XXKSU")
               BRANCH=""
               ;;
+            "RKSU")
+              BRANCH="-s main"
+              ;;
+            "KowSU")
+              BRANCH="-s master"
+              ;;
+            "FinaSU (FolkSU)")
+              BRANCH="-s master"
+              ;;
+            "NoKSU")
+              BRANCH=""
+              ;;
             *)
               if [ -z "$LEGACY_SUKISU_CONFIG" ] || [ ! -f "$LEGACY_SUKISU_CONFIG" ]; then
                 echo "Unknown variant: $variant_input" >&2
@@ -562,6 +574,25 @@ jobs:
             "BakaSU(ReSukiSU)")
               echo "Adding BakaSU(ReSukiSU)..."
               curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash $BRANCH
+              ;;
+            "RKSU")
+              echo "Adding RKSU (rsuntk/KernelSU)..."
+              curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash $BRANCH
+              ;;
+            "KowSU")
+              echo "Adding KowSU (KOWX712/KernelSU)..."
+              curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh" | bash $BRANCH
+              ;;
+            "FinaSU (FolkSU)")
+              # FinaSU's own kernel/setup.sh clones tiann/KernelSU, so pre-clone
+              # the FinaSU tree into KernelSU/ first; its setup.sh then skips the
+              # clone and only wires up the symlink + Makefile/Kconfig.
+              echo "Adding FinaSU (FolkSU)..."
+              git clone --depth=1 https://github.com/LyraVoid/FinaSU KernelSU
+              curl -LSs "https://raw.githubusercontent.com/LyraVoid/FinaSU/master/kernel/setup.sh" | bash $BRANCH
+              ;;
+            "NoKSU")
+              echo "No root manager (NoKSU): skipping KernelSU setup"
               ;;
             *)
               if [ -z "$LEGACY_SUKISU_CONFIG" ]; then
@@ -710,7 +741,7 @@ jobs:
           echo "Updated get_ksu_version_full template: $VERSION_TEMPLATE"
 
       - name: Apply SUSFS patch
-        if: inputs.enable_susfs
+        if: inputs.enable_susfs && inputs.ksu_variant != 'NoKSU'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           ANDROID_VERSION: ${{ inputs.android_version }}
@@ -872,7 +903,7 @@ jobs:
           echo "VPNHide enabled."
 
       - name: Apply NoMount patch
-        if: inputs.enable_nomount
+        if: inputs.enable_nomount && inputs.ksu_variant != 'NoKSU'
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           # NoMount is intentionally NOT built into the kernel (option A).
@@ -1324,13 +1355,17 @@ jobs:
       - name: Configure kernel options
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          cat >> "$DEFCONFIG" << 'EOF'
+          if [ "${{ inputs.ksu_variant }}" != "NoKSU" ]; then
+            cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_KSU=y
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
+          else
+            echo "NoKSU: clean kernel build, CONFIG_KSU not set"
+          fi
 
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "BakaSU(ReSukiSU)" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "BakaSU(ReSukiSU)" ] || [ "${{ inputs.ksu_variant }}" == "Next" ] || [ "${{ inputs.ksu_variant }}" == "RKSU" ] || [ "${{ inputs.ksu_variant }}" == "KowSU" ] || [ "${{ inputs.ksu_variant }}" == "FinaSU (FolkSU)" ]; then
             if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
               # "enabled": the KSU fork must provide its own KPM (CONFIG_KPM).
               if ! grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
@@ -1371,7 +1406,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Add SUSFS config
-        if: inputs.enable_susfs
+        if: inputs.enable_susfs && inputs.ksu_variant != 'NoKSU'
         run: |
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_KSU_SUSFS=y
@@ -1394,7 +1429,7 @@ jobs:
       # "fatal error: 'linux/susfs.h' file not found". Pin it off explicitly
       # so the #ifdef CONFIG_KSU_SUSFS blocks compile out.
       - name: Force-disable SUSFS config when enable_susfs is off
-        if: ${{ !inputs.enable_susfs }}
+        if: ${{ !inputs.enable_susfs || inputs.ksu_variant == 'NoKSU' }}
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           # KernelSU setup.sh links the driver dir as common/drivers/kernelsu
@@ -1626,7 +1661,7 @@ jobs:
       # The patched path used to rely on the stale SukiSU_patch/kpm/patch_linux
       # blob; it now pulls the pinned KernelPatch release (BTF API, PR #284).
       - name: Apply KernelPatch (KPM) to Image
-        if: startsWith(inputs.use_kpm, 'patched')
+        if: startsWith(inputs.use_kpm, 'patched') && inputs.ksu_variant != 'NoKSU'
         run: |
           set -euo pipefail
 

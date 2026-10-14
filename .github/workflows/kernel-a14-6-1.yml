@@ -28,6 +28,10 @@ on:
           - SukiSU(40548)
           - BakaSU(ReSukiSU)
           - XXKSU
+          - RKSU
+          - KowSU
+          - FinaSU (FolkSU)
+          - NoKSU
         default: BakaSU(ReSukiSU)
       susfs:
         description: "SUSFS mount hiding"
@@ -286,7 +290,7 @@ jobs:
   # Runs for both Original and Sultan builds -- get-manager.yml handles the
   # "Next" variant used by Sultan just as well as the others.
   get-ksu-manager:
-    if: ${{ !inputs.called_from_main }}
+    if: ${{ !inputs.called_from_main && inputs.kernelsu_variant != 'NoKSU' }}
     uses: ./.github/workflows/get-manager.yml
     secrets: inherit
     with:

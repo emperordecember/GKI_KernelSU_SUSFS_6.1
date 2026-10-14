@@ -15,7 +15,9 @@ cp $SUSFS4KSU/kernel_patches/fs/* ./common/fs/
 cp $SUSFS4KSU/kernel_patches/include/linux/* ./common/include/linux/
 
 case "$KSU_VARIANT" in
-  "Official")
+  "Official"|"RKSU"|"KowSU"|"FinaSU (FolkSU)")
+    # official-style forks (tiann/KernelSU layout): integrate SUSFS via the
+    # KernelSU-side patch.
     cd ./KernelSU
     cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
     # Legacy patch compatibility: only rewrite to kernel/Kbuild if the patch still targets kernel/Makefile only
@@ -213,7 +215,7 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
   fi
 fi
 
-if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
+if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "RKSU" ] || [ "$KSU_VARIANT" == "KowSU" ] || [ "$KSU_VARIANT" == "FinaSU (FolkSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
   fix_namespace_susfs_mount_decls() {
     local label="$1"
     local marker_pattern="$2"
