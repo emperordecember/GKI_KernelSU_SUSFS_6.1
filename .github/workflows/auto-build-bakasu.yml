@@ -1,0 +1,77 @@
+name: Auto Build BakaSU(ReSukiSU)
+
+# Scheduled auto-build of the BakaSU(ReSukiSU) kernel (formerly ReSukiSU).
+# Dispatches the Android 14 (6.1) build workflow with SUSFS + KPM enabled.
+# Runs every 2 days; can also be triggered manually (optionally overriding the
+# variant/feature flags below).
+
+on:
+  schedule:
+    - cron: '0 3 */2 * *'   # every 2 days at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      kernelsu_variant:
+        description: "KernelSU variant to auto-build"
+        required: false
+        type: string
+        default: "BakaSU(ReSukiSU)"
+      susfs:
+        description: "SUSFS (enabled/disabled)"
+        required: false
+        type: string
+        default: "enabled"
+      use_kpm:
+        description: "KPM mode"
+        required: false
+        type: string
+        default: "patched (inject KernelPatch)"
+      use_zram:
+        description: "Enhanced ZRAM"
+        required: false
+        type: boolean
+        default: false
+      use_bbg:
+        description: "BBG anti-brick"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch BakaSU(ReSukiSU) build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VARIANT="${{ inputs.kernelsu_variant || 'BakaSU(ReSukiSU)' }}"
+          SUSFS="${{ inputs.susfs || 'enabled' }}"
+          KPM="${{ inputs.use_kpm || 'patched (inject KernelPatch)' }}"
+          ZRAM="${{ inputs.use_zram || 'false' }}"
+          BBG="${{ inputs.use_bbg || 'false' }}"
+
+          echo "Dispatching 'Kernel Build - Android 14 (6.1)':"
+          echo "  variant=$VARIANT susfs=$SUSFS kpm=$KPM zram=$ZRAM bbg=$BBG"
+
+          gh workflow run "Kernel Build - Android 14 (6.1)" \
+            --repo "${{ github.repository }}" \
+            --ref dev \
+            -f kernel_source="Original (GKI common)" \
+            -f kernelsu_variant="$VARIANT" \
+            -f susfs="$SUSFS" \
+            -f nomount=disabled \
+            -f use_kpm="$KPM" \
+            -f droidspaces=off \
+            -f artifact_upload_mode="AnyKernel3.zip only" \
+            -f use_zram="$ZRAM" \
+            -f use_bbg="$BBG" \
+            -f use_rekernel=false \
+            -f use_bbrv3=false \
+            -f use_performance=false \
+            -f use_vpnhide=false
+
+          echo "Dispatched."
