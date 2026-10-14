@@ -972,19 +972,33 @@ jobs:
         if: inputs.enable_nomount && inputs.ksu_variant != 'no root manager'
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          # NoMount is intentionally NOT built into the kernel (option A).
-          # In-tree CONFIG_NOMOUNT=y + the NoMount LKM (KernelSU metamodule, loaded
-          # via lkmloader from /data/adb/modules/nomount) are two copies of the
-          # same code hooking the VFS path walk; with CONFIG_CFI_CLANG=y the
-          # second copy trips CFI in lookup_fast -> Kernel panic (recorded in
-          # KernelSU_Next_bugreport_2026-09-30_14_02).
-          # maxsteeel/nomount README: "For GKI Users you generally do not need to
-          # do this. Pre-compiled LKMs are already provided in the NoMount release
-          # ZIP." So for GKI we ship the LKM module only (get-manager attaches the
-          # per-KMI nomount-<android>-<kernel>.ko artifact when nomount is
-          # selected). This step stays as a no-op gate so the old built-in path is
-          # gone and the CI matrix still documents the toggle.
-          echo "NoMount: built-in integration disabled (GKI uses the pre-built LKM module only)."
+          # Built-in NoMount: patch the kernel tree (fs/nomount + CONFIG_NOMOUNT=y).
+          # The prebuilt LKM is also attached by get-manager; the NoMount
+          # metamodule detects an already-integrated kernel and does not load the
+          # LKM, so shipping both is safe.
+          case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
+            android12-5.10) PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.10_kernel_integration.patch" ;;
+            android13-5.15) PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.15_kernel_integration.patch" ;;
+            android14-6.1)  PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_6.1_kernel_integration.patch" ;;
+            android15-6.6)  PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_6.6_kernel_integration.patch" ;;
+            android16-6.12) PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_6.12_kernel_integration.patch" ;;
+            *)
+              echo "::warning::NoMount has no kernel-integration port for ${{ inputs.android_version }}-${{ inputs.kernel_version }}; skipping."
+              exit 0
+              ;;
+          esac
+          echo "Applying NoMount kernel integration patch: $(basename "$PATCH")"
+          patch -p1 --fuzz=0 < "$PATCH" || { echo "::error::NoMount integration patch failed to apply"; exit 1; }
+
+          mkdir -p ./fs/nomount
+          NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
+          if [ "${{ inputs.nomount_variant }}" == "hookless" ]; then
+            NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src-hookless"
+          fi
+          cp "$NOMOUNT_SRC"/nomount.c "$NOMOUNT_SRC"/nomount.h "$NOMOUNT_SRC"/Kconfig "$NOMOUNT_SRC"/Makefile ./fs/nomount/
+
+          grep -q '^CONFIG_NOMOUNT=y$' "$DEFCONFIG" || echo "CONFIG_NOMOUNT=y" >> "$DEFCONFIG"
+          echo "NoMount built-in enabled (CONFIG_NOMOUNT=y)."
 
       - name: Apply binder async free race defensive fix
         working-directory: ${{ env.KERNEL_ROOT }}/common
