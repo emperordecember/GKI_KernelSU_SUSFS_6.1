@@ -265,20 +265,41 @@ jobs:
           ANYKERNEL_BRANCH="gki-2.0"
           SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
 
+          # Hosted runners occasionally drop a `git clone` mid-transfer
+          # ("Child_process exited with error code 1"); retry with exponential
+          # backoff and a clean target dir instead of failing the whole build.
+          clone_retry() {
+            local url="$1"; shift
+            local dest="$1"; shift
+            local attempt=1 max=4 delay=5
+            while [ "$attempt" -le "$max" ]; do
+              rm -rf "$dest"
+              if git clone "$@" "$url" "$dest"; then
+                return 0
+              fi
+              echo "::warning::git clone failed (attempt $attempt/$max): $url"
+              attempt=$((attempt + 1))
+              [ "$attempt" -le "$max" ] && sleep "$delay"
+              delay=$((delay * 2))
+            done
+            echo "::error::git clone failed after $max attempts: $url"
+            return 1
+          }
+
           echo "Cloning AnyKernel3..."
-          git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
+          clone_retry https://github.com/WildKernels/AnyKernel3.git AnyKernel3 -b "$ANYKERNEL_BRANCH"
           rm -rf AnyKernel3/.git
 
           echo "Cloning SUSFS (branch: $SUSFS_BRANCH)..."
           if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
-            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+            clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
           elif [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
-            if ! git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" 2>/dev/null; then
+            if ! clone_retry https://github.com/ShirkNeko/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH" 2>/dev/null; then
               echo "Branch $SUSFS_BRANCH not found in ShirkNeko repo, falling back to simonpunk upstream..."
-              git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+              clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
             fi
           else
-            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+            clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
           fi
 
           if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
@@ -310,10 +331,10 @@ jobs:
           echo "SUSFS repo latest commit date: $SUSFS_LATEST_COMMIT_DATE"
 
           echo "Preparing patch resources..."
-          git clone https://github.com/WildKernels/kernel_patches.git
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
+          clone_retry https://github.com/WildKernels/kernel_patches.git kernel_patches
+          clone_retry https://github.com/ShirkNeko/SukiSU_patch.git SukiSU_patch
           echo "Using current repo patch directory: $ZZH_PATCHES"
-          git clone https://github.com/Numbersf/Action-Build.git --depth=1
+          clone_retry https://github.com/Numbersf/Action-Build.git Action-Build --depth=1
 
       - name: Initialize and sync kernel source
         working-directory: ${{ env.KERNEL_ROOT }}
