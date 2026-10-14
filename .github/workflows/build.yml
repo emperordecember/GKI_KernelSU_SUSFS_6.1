@@ -519,12 +519,10 @@ jobs:
               BRANCH="-s master"
               ;;
             "FinaSU (FolkSU)")
-              # SUSFS-capable FinaSU lives in the 'susfs2_GKI' branch.
-              if [ "${{ inputs.enable_susfs }}" = "false" ]; then
-                BRANCH="-s master"
-              else
-                BRANCH="-s susfs2_GKI"
-              fi
+              # FinaSU's 'susfs2_GKI' branch (2026-02) targets SUSFS v2.0 and no
+              # longer builds against current SUSFS; build master without SUSFS
+              # (handled below, like RKSU/KowSU).
+              BRANCH="-s master"
               ;;
             "no root manager")
               BRANCH=""
@@ -774,7 +772,7 @@ jobs:
           echo "Updated get_ksu_version_full template: $VERSION_TEMPLATE"
 
       - name: Apply SUSFS patch
-        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU'
+        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU' && inputs.ksu_variant != 'FinaSU (FolkSU)'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           ANDROID_VERSION: ${{ inputs.android_version }}
@@ -790,7 +788,7 @@ jobs:
           echo "Applying SUSFS patch via scripts/susfs_fixes/apply.sh..."
           bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" || { echo "::error::SUSFS apply.sh failed"; exit 1; }
       - name: No-SUSFS variant notice
-        if: inputs.enable_susfs && (inputs.ksu_variant == 'KowSU' || inputs.ksu_variant == 'RKSU')
+        if: inputs.enable_susfs && (inputs.ksu_variant == 'KowSU' || inputs.ksu_variant == 'RKSU' || inputs.ksu_variant == 'FinaSU (FolkSU)')
         run: |
           echo "::warning::${{ inputs.ksu_variant }} has no SUSFS support compatible with the current SUSFS release; the kernel is built without SUSFS hooks. Use susfs=disabled to silence this."
       - name: Fix KernelSU SUSFS build compatibility
@@ -1457,7 +1455,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Add SUSFS config
-        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU'
+        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU' && inputs.ksu_variant != 'FinaSU (FolkSU)'
         run: |
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_KSU_SUSFS=y

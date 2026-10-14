@@ -28,10 +28,10 @@ case "$KSU_VARIANT" in
 
     cd ..
     ;;
-  "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"BakaSU(ReSukiSU)"|"FinaSU (FolkSU)")
+  "Next"|"SukiSU"|"SukiSU(40726)"|"SukiSU(40548)"|"BakaSU(ReSukiSU)")
     echo "$KSU_VARIANT uses built-in SUSFS support (no KernelSU-side patch)"
     ;;
-  "KowSU"|"RKSU")
+  "KowSU"|"RKSU"|"FinaSU (FolkSU)")
     echo "::warning::$KSU_VARIANT has no SUSFS support compatible with current SUSFS; building without SUSFS hooks."
     ;;
   "XXKSU")
@@ -247,7 +247,7 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
   fi
 fi
 
-if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "FinaSU (FolkSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
+if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
   fix_namespace_susfs_mount_decls() {
     local label="$1"
     local marker_pattern="$2"
