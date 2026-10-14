@@ -339,7 +339,13 @@ jobs:
       - name: Initialize and sync kernel source
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-6.4.1.git gcc
+          for i in 1 2 3; do
+            rm -rf gcc
+            git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-6.4.1.git gcc && break
+            echo "::warning::gcc prebuilt clone failed (attempt $i/3)"
+            sleep $((i * 10))
+          done
+          [ -d gcc/.git ] || { echo "::error::failed to clone the gcc prebuilt after 3 attempts"; exit 1; }
 
           FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
           echo "Initializing repo, branch: common-${FORMATTED_BRANCH}"
@@ -371,7 +377,18 @@ jobs:
             echo "TAG_FALLBACK=$LATEST_TAG" >> $GITHUB_ENV
           fi
 
-          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
+          # repo sync hits the network hard and occasionally drops; retry a few
+          # times (repo sync resumes, already-fetched projects are skipped).
+          sync_attempt=1
+          until $REPO sync -c -j$(nproc --all) --no-tags; do
+            if [ "$sync_attempt" -ge 3 ]; then
+              echo "::error::repo sync failed after $sync_attempt attempts"
+              exit 1
+            fi
+            echo "::warning::repo sync failed (attempt $sync_attempt/3); retrying..."
+            sync_attempt=$((sync_attempt + 1))
+            sleep $((sync_attempt * 15))
+          done
           echo "REMOTE_BRANCH=$REMOTE_BRANCH" >> $GITHUB_ENV
 
       # Snapshot the pristine stock defconfig BEFORE any step modifies it

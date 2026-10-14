@@ -78,7 +78,9 @@ action_build_comparison.md
 bbrv3-source.md
 job.md
 tegu-port-plan.md
+project.md
+PROJECT.md
+*.session.md
 
-# local agent dirs
-.omo/
-.serena/
+# AI/agent tooling
+.opencode/
