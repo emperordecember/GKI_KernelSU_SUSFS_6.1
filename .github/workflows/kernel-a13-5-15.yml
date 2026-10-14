@@ -22,7 +22,7 @@ on:
           - RKSU
           - KowSU
           - FinaSU (FolkSU)
-          - NoKSU
+          - no root manager
         default: BakaSU(ReSukiSU)
       susfs:
         description: "SUSFS mount hiding"
@@ -250,7 +250,7 @@ jobs:
 
   # 仅在直接触发时运行，从 main.yml 调用时跳过
   get-ksu-manager:
-    if: ${{ !inputs.called_from_main && inputs.kernelsu_variant != 'NoKSU' }}
+    if: ${{ !inputs.called_from_main && inputs.kernelsu_variant != 'no root manager' }}
     uses: ./.github/workflows/get-manager.yml
     secrets: inherit
     with:

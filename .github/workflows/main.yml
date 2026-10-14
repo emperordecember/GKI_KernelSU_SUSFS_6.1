@@ -47,7 +47,7 @@ on:
           - RKSU
           - KowSU
           - FinaSU (FolkSU)
-          - NoKSU
+          - no root manager
         default: BakaSU(ReSukiSU)
       susfs:
         description: "SUSFS mount hiding"
@@ -159,7 +159,7 @@ jobs:
   # ==================== Fetch manager ====================
   # Download the latest KernelSU manager APK and SUSFS module
   get-manager:
-    if: inputs.kernelsu_variant != 'NoKSU'
+    if: inputs.kernelsu_variant != 'no root manager'
     uses: ./.github/workflows/get-manager.yml
     secrets: inherit
     with:
@@ -367,7 +367,7 @@ jobs:
             "RKSU")      KSU_NAME="RKSU" ;;
             "KowSU")     KSU_NAME="KowSU" ;;
             "FinaSU (FolkSU)") KSU_NAME="FinaSU (FolkSU)" ;;
-            "NoKSU")     KSU_NAME="No root" ;;
+            "no root manager")     KSU_NAME="no root manager" ;;
           esac
           echo "KSU_NAME=$KSU_NAME" >> $GITHUB_ENV
 
@@ -449,7 +449,7 @@ jobs:
             "RKSU") BRANCH="main" ;;
             "KowSU") BRANCH="master" ;;
             "FinaSU (FolkSU)") BRANCH="master" ;;
-            "NoKSU") BRANCH="" ;;
+            "no root manager") BRANCH="" ;;
             *) echo "Error: unknown variant" >&2; exit 1 ;;
           esac
           echo "KSU_BRANCH=$BRANCH" >> $GITHUB_ENV
@@ -468,11 +468,11 @@ jobs:
             "RKSU") REPO_URL="https://github.com/rsuntk/KernelSU.git"; REPO_URL2="rsuntk/KernelSU" ;;
             "KowSU") REPO_URL="https://github.com/KOWX712/KernelSU.git"; REPO_URL2="KOWX712/KernelSU" ;;
             "FinaSU (FolkSU)") REPO_URL="https://github.com/LyraVoid/FinaSU.git"; REPO_URL2="LyraVoid/FinaSU" ;;
-            "NoKSU") REPO_URL=""; REPO_URL2="" ;;
+            "no root manager") REPO_URL=""; REPO_URL2="" ;;
           esac
 
-          if [ "${{ inputs.kernelsu_variant }}" = "NoKSU" ]; then
-            echo "NoKSU: no KernelSU commit info"
+          if [ "${{ inputs.kernelsu_variant }}" = "no root manager" ]; then
+            echo "no root manager: no KernelSU commit info"
             echo "KSU_REF=" >> $GITHUB_ENV
             echo "KSU_URL=" >> $GITHUB_ENV
             exit 0
