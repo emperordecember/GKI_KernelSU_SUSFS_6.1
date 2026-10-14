@@ -129,8 +129,16 @@ jobs:
           fi
 
           case "$variant_input" in
-            "Official"|"BakaSU(ReSukiSU)")
+            "Official")
               BRANCH="-s main"
+              ;;
+            "BakaSU(ReSukiSU)")
+              # 'main' hard-errors under CONFIG_KSU_SUSFS; use the SUSFS-synced branch.
+              if [ "${{ inputs.susfs }}" = "disabled" ]; then
+                BRANCH="-s main"
+              else
+                BRANCH="-s sync-susfs"
+              fi
               ;;
             "SukiSU")
               BRANCH="-s builtin"

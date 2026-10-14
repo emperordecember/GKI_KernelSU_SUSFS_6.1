@@ -461,8 +461,18 @@ jobs:
           variant_input="${{ inputs.ksu_variant }}"
 
           case "$variant_input" in
-            "Official"|"BakaSU(ReSukiSU)")
+            "Official")
               BRANCH="-s main"
+              ;;
+            "BakaSU(ReSukiSU)")
+              # BakaSU's 'main' intentionally hard-errors under CONFIG_KSU_SUSFS
+              # ("Please wait susfs update"); the SUSFS-synced build lives in the
+              # 'sync-susfs' branch (Kconfig KSU_SUSFS + updated susfs_compat.mk).
+              if [ "${{ inputs.enable_susfs }}" = "false" ]; then
+                BRANCH="-s main"
+              else
+                BRANCH="-s sync-susfs"
+              fi
               ;;
             "SukiSU")
               if [ "${{ inputs.enable_susfs }}" = "false" ]; then
