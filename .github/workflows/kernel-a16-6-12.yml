@@ -7,6 +7,20 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      build_target:
+        description: "Which kernel to build: a single sub-level, or all at once"
+        required: false
+        type: choice
+        options:
+          - "all"
+          - "23"
+          - "30"
+          - "38"
+          - "58"
+          - "69"
+          - "81"
+          - "X"
+        default: "all"
       kernelsu_variant:
         description: "KernelSU variant"
         required: true
@@ -125,6 +139,10 @@ on:
         default: false
   workflow_call:
     inputs:
+      build_target:
+        required: false
+        type: string
+        default: "all"
       kernelsu_variant:
         required: true
         type: string
@@ -196,6 +214,7 @@ on:
 jobs:
   build-kernels-a16-6-12:
     name: "6.12.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
+    if: inputs.build_target == 'all' || inputs.build_target == matrix.sub_level
     strategy:
       fail-fast: false
       matrix:

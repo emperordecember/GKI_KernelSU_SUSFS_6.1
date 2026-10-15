@@ -16,6 +16,19 @@ on:
           - "Sultan (Pixel Tensor G4 / zumapro)"
           - "Sultan (Pixel Tensor G4 / tegu)"
         default: "Original (GKI common)"
+      build_target:
+        description: "Which kernel to build: a single sub-level, or all at once"
+        required: false
+        type: choice
+        options:
+          - "all"
+          - "145"
+          - "157"
+          - "162"
+          - "172"
+          - "176"
+          - "X"
+        default: "all"
       kernelsu_variant:
         description: "KernelSU variant"
         required: true
@@ -133,6 +146,10 @@ on:
         required: false
         type: string
         default: "Original (GKI common)"
+      build_target:
+        required: false
+        type: string
+        default: "all"
       kernelsu_variant:
         required: true
         type: string
@@ -200,7 +217,7 @@ on:
 jobs:
   build-kernels-a14-6-1:
     name: "6.1.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
-    if: inputs.kernel_source != 'Sultan (Pixel Tensor G4 / zumapro)' && inputs.kernel_source != 'Sultan (Pixel Tensor G4 / tegu)'
+    if: inputs.kernel_source != 'Sultan (Pixel Tensor G4 / zumapro)' && inputs.kernel_source != 'Sultan (Pixel Tensor G4 / tegu)' && (inputs.build_target == 'all' || inputs.build_target == matrix.sub_level)
     strategy:
       fail-fast: false
       matrix:
