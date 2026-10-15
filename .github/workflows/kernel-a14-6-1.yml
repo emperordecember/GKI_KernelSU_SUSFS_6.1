@@ -215,25 +215,31 @@ on:
         type: boolean
         default: false
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          TARGET: ${{ inputs.build_target }}
+        run: |
+          ALL='[{"sub_level":"145","os_patch_level":"2025-09"},{"sub_level":"157","os_patch_level":"2025-12"},{"sub_level":"162","os_patch_level":"2026-03"},{"sub_level":"172","os_patch_level":"2026-06"},{"sub_level":"176","os_patch_level":"2026-09"},{"sub_level":"X","os_patch_level":"lts"}]'
+          if [ -z "$TARGET" ] || [ "$TARGET" = "all" ]; then
+            echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
+          else
+            SELECTED=$(echo "$ALL" | jq -c --arg t "$TARGET" '[.[]|select(.sub_level==$t)]')
+            [ "$SELECTED" != "[]" ] || { echo "::error::Unknown build_target: $TARGET"; exit 1; }
+            echo "matrix={\"include\":$SELECTED}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-kernels-a14-6-1:
+    needs: setup
     name: "6.1.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
-    if: inputs.kernel_source != 'Sultan (Pixel Tensor G4 / zumapro)' && inputs.kernel_source != 'Sultan (Pixel Tensor G4 / tegu)' && (inputs.build_target == 'all' || inputs.build_target == matrix.sub_level)
+    if: inputs.kernel_source != 'Sultan (Pixel Tensor G4 / zumapro)' && inputs.kernel_source != 'Sultan (Pixel Tensor G4 / tegu)'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - sub_level: "145"
-            os_patch_level: "2025-09"
-          - sub_level: "157"
-            os_patch_level: "2025-12"
-          - sub_level: "162"
-            os_patch_level: "2026-03"
-          - sub_level: "172"
-            os_patch_level: "2026-06"
-          - sub_level: "176"
-            os_patch_level: "2026-09"
-          - sub_level: "X"
-            os_patch_level: "lts"
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:

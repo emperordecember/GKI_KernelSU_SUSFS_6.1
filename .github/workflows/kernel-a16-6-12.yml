@@ -212,27 +212,30 @@ on:
         default: false
 
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          TARGET: ${{ inputs.build_target }}
+        run: |
+          ALL='[{"sub_level":"23","os_patch_level":"2025-06"},{"sub_level":"30","os_patch_level":"2025-07"},{"sub_level":"38","os_patch_level":"2025-09"},{"sub_level":"58","os_patch_level":"2025-12"},{"sub_level":"69","os_patch_level":"2026-03"},{"sub_level":"81","os_patch_level":"2026-06"},{"sub_level":"X","os_patch_level":"lts"}]'
+          if [ -z "$TARGET" ] || [ "$TARGET" = "all" ]; then
+            echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
+          else
+            SELECTED=$(echo "$ALL" | jq -c --arg t "$TARGET" '[.[]|select(.sub_level==$t)]')
+            [ "$SELECTED" != "[]" ] || { echo "::error::Unknown build_target: $TARGET"; exit 1; }
+            echo "matrix={\"include\":$SELECTED}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-kernels-a16-6-12:
+    needs: setup
     name: "6.12.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
-    if: inputs.build_target == 'all' || inputs.build_target == matrix.sub_level
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - sub_level: "23"
-            os_patch_level: "2025-06"
-          - sub_level: "30"
-            os_patch_level: "2025-07"
-          - sub_level: "38"
-            os_patch_level: "2025-09"
-          - sub_level: "58"
-            os_patch_level: "2025-12"
-          - sub_level: "69"
-            os_patch_level: "2026-03"
-          - sub_level: "81"
-            os_patch_level: "2026-06"
-          - sub_level: "X"
-            os_patch_level: "lts"
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:

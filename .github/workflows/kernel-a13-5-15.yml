@@ -208,53 +208,30 @@ on:
         default: false
 
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          TARGET: ${{ inputs.build_target }}
+        run: |
+          ALL='[{"sub_level":"74","os_patch_level":"2023-01"},{"sub_level":"78","os_patch_level":"2023-03"},{"sub_level":"94","os_patch_level":"2023-05"},{"sub_level":"104","os_patch_level":"2023-07"},{"sub_level":"119","os_patch_level":"2023-09"},{"sub_level":"123","os_patch_level":"2023-11"},{"sub_level":"137","os_patch_level":"2024-01"},{"sub_level":"144","os_patch_level":"2024-03"},{"sub_level":"148","os_patch_level":"2024-05"},{"sub_level":"149","os_patch_level":"2024-07"},{"sub_level":"151","os_patch_level":"2024-08"},{"sub_level":"153","os_patch_level":"2024-09"},{"sub_level":"167","os_patch_level":"2024-11"},{"sub_level":"170","os_patch_level":"2025-01"},{"sub_level":"178","os_patch_level":"2025-03"},{"sub_level":"180","os_patch_level":"2025-05"},{"sub_level":"185","os_patch_level":"2025-07"},{"sub_level":"189","os_patch_level":"2025-09"},{"sub_level":"194","os_patch_level":"2025-12"},{"sub_level":"X","os_patch_level":"lts"}]'
+          if [ -z "$TARGET" ] || [ "$TARGET" = "all" ]; then
+            echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
+          else
+            SELECTED=$(echo "$ALL" | jq -c --arg t "$TARGET" '[.[]|select(.sub_level==$t)]')
+            [ "$SELECTED" != "[]" ] || { echo "::error::Unknown build_target: $TARGET"; exit 1; }
+            echo "matrix={\"include\":$SELECTED}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-kernels-a13-5-15:
+    needs: setup
     name: "5.15.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
-    if: inputs.build_target == 'all' || inputs.build_target == matrix.sub_level
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - sub_level: "74"
-            os_patch_level: "2023-01"
-          - sub_level: "78"
-            os_patch_level: "2023-03"
-          - sub_level: "94"
-            os_patch_level: "2023-05"
-          - sub_level: "104"
-            os_patch_level: "2023-07"
-          - sub_level: "119"
-            os_patch_level: "2023-09"
-          - sub_level: "123"
-            os_patch_level: "2023-11"
-          - sub_level: "137"
-            os_patch_level: "2024-01"
-          - sub_level: "144"
-            os_patch_level: "2024-03"
-          - sub_level: "148"
-            os_patch_level: "2024-05"
-          - sub_level: "149"
-            os_patch_level: "2024-07"
-          - sub_level: "151"
-            os_patch_level: "2024-08"
-          - sub_level: "153"
-            os_patch_level: "2024-09"
-          - sub_level: "167"
-            os_patch_level: "2024-11"
-          - sub_level: "170"
-            os_patch_level: "2025-01"
-          - sub_level: "178"
-            os_patch_level: "2025-03"
-          - sub_level: "180"
-            os_patch_level: "2025-05"
-          - sub_level: "185"
-            os_patch_level: "2025-07"
-          - sub_level: "189"
-            os_patch_level: "2025-09"
-          - sub_level: "194"
-            os_patch_level: "2025-12"
-          - sub_level: "X"
-            os_patch_level: "lts"
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:

@@ -201,25 +201,30 @@ on:
         default: false
 
 jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        env:
+          TARGET: ${{ inputs.build_target }}
+        run: |
+          ALL='[{"sub_level":"233","os_patch_level":"2025-02","revision":"r1"},{"sub_level":"236","os_patch_level":"2025-05","revision":"r1"},{"sub_level":"240","os_patch_level":"2025-09","revision":"r1"},{"sub_level":"X","os_patch_level":"lts","revision":"r1"}]'
+          if [ -z "$TARGET" ] || [ "$TARGET" = "all" ]; then
+            echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
+          else
+            SELECTED=$(echo "$ALL" | jq -c --arg t "$TARGET" '[.[]|select(.sub_level==$t)]')
+            [ "$SELECTED" != "[]" ] || { echo "::error::Unknown build_target: $TARGET"; exit 1; }
+            echo "matrix={\"include\":$SELECTED}" >> "$GITHUB_OUTPUT"
+          fi
+
   build-kernels-a12-5-10:
+    needs: setup
     name: "5.10.${{ matrix.sub_level }}-${{ matrix.os_patch_level }}"
-    if: inputs.build_target == 'all' || inputs.build_target == matrix.sub_level
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - sub_level: "233"
-            os_patch_level: "2025-02"
-            revision: "r1"
-          - sub_level: "236"
-            os_patch_level: "2025-05"
-            revision: "r1"
-          - sub_level: "240"
-            os_patch_level: "2025-09"
-            revision: "r1"
-          - sub_level: "X"
-            os_patch_level: "lts"
-            revision: "r1"
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
