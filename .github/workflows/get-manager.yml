@@ -311,6 +311,17 @@ jobs:
               BUILD_ID=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].id")
               HEAD_SHA=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].head_sha")
               HEAD_BRANCH=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].head_branch")
+              RUN_EVENT=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].event")
+
+              # Never ship a PR build: managers built on pull_request carry a
+              # "This is a PR debug build. Do NOT use it in production!" banner
+              # and are not the official release manager.
+              case "$RUN_EVENT" in
+                pull_request*)
+                  echo "跳过构建 $BUILD_ID ($HEAD_BRANCH): pull_request build (PR debug manager)"
+                  continue
+                  ;;
+              esac
 
               RUN_KSU_VERSION=$(calculate_run_ksu_version "$HEAD_SHA" || true)
               if ! [[ "$RUN_KSU_VERSION" =~ ^[0-9]+$ ]]; then
