@@ -222,6 +222,18 @@ jobs:
             echo "BakaSU(ReSukiSU)..."
             REPO="Baka-SU/BakaSU"
             KSUM="manager"
+            # The manager MUST come from the same branch the kernel is built
+            # from: build.yml checks out 'sync-susfs' when SUSFS is enabled
+            # (main hard-errors under CONFIG_KSU_SUSFS), and 'main' otherwise.
+            # sync-susfs is ahead of main (the SUSFS-sync commits), so its
+            # version code is higher -- e.g. 35231 vs main's 35229. Without this
+            # pin the search can fall back to a main-based manager and the APK
+            # versionCode drifts below the kernel driver version.
+            if [ "${{ inputs.susfs }}" == "enabled" ]; then
+              BRANCH="sync-susfs"
+            else
+              BRANCH="main"
+            fi
           elif [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "KSU..."
             REPO="tiann/KernelSU"
@@ -293,7 +305,10 @@ jobs:
           BEST_BUILD_ID=""
           BEST_BRANCH=""
           RUNS_URL="https://api.github.com/repos/$REPO/actions/workflows/$FILENAME/runs?status=success&per_page=30"
-          if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
+          if [ "${{ inputs.kernelsu_variant }}" == "Next" ] || [ "${{ inputs.kernelsu_variant }}" == "BakaSU(ReSukiSU)" ]; then
+            # Restrict to the branch the kernel is built from so the manager can
+            # never be sourced from a different branch (e.g. main instead of
+            # sync-susfs), which is what caused the 35229-vs-35231 drift.
             RUNS_URL="https://api.github.com/repos/$REPO/actions/workflows/$FILENAME/runs?branch=$BRANCH&status=success&per_page=30"
           fi
 
@@ -360,6 +375,14 @@ jobs:
             exit 1
           fi
           echo "选择 Manager 构建 $BEST_BUILD_ID ($BEST_BRANCH), KSU $BEST_VERSION"
+
+          # BakaSU(ReSukiSU): the manager APK's versionCode is frozen at build
+          # time from the commit its own CI built from. If no build exists yet
+          # for the exact kernel commit (same branch), the closest older one is
+          # used and the manager trails the kernel driver. Surface it loudly.
+          if [ "${{ inputs.kernelsu_variant }}" == "BakaSU(ReSukiSU)" ] && [ "$BEST_VERSION" -ne "$TARGET_KSU_VERSION" ]; then
+            echo "::warning::BakaSU(ReSukiSU) manager KSU $BEST_VERSION (build $BEST_BUILD_ID on $BEST_BRANCH) != kernel KSU $TARGET_KSU_VERSION; no same-branch manager build for the kernel commit yet"
+          fi
 
           # 下载并解压所有 Manager 产物
           echo "$DOWNLOAD_LIST" | while IFS=$'\t' read -r NAME URL; do
