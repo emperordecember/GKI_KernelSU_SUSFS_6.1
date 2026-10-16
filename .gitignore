@@ -62,25 +62,7 @@ node_modules/
 
 # Other
 .ace-tool/
-AGENTS.md
 web/serve.sh
 .omc/
 web/dist/
-wild_kernel_comparison.md
-action_build_comparison.md
 
-/.vs
-
-# Session debug backup (temporary, do not commit)
-.session-backup/
-
-# AI session journals / notes (keep local, not in repo)
-bbrv3-source.md
-job.md
-tegu-port-plan.md
-project.md
-PROJECT.md
-*.session.md
-
-# AI/agent tooling
-.opencode/
