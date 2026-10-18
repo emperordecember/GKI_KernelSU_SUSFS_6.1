@@ -859,7 +859,23 @@ jobs:
             exit 0
           fi
 
-          patch -p1 --fuzz=$PATCH_FUZZ < "$PATCH" || { echo "::error::BBRv3 patch failed to apply"; exit 1; }
+          # Older sub-levels (e.g. 6.1.138) have drifted context, so the patch
+          # may need fuzz. Probe fuzz levels with --dry-run and apply once with
+          # the first that applies cleanly (a partial apply would leave .rej and
+          # break a retry).
+          APPLY_FUZZ=""
+          for F in "$PATCH_FUZZ" 2 3; do
+            if patch -p1 --fuzz="$F" --dry-run < "$PATCH" >/dev/null 2>&1; then
+              APPLY_FUZZ="$F"
+              break
+            fi
+          done
+          if [ -z "$APPLY_FUZZ" ]; then
+            echo "::error::BBRv3 patch does not apply at fuzz $PATCH_FUZZ/2/3"
+            exit 1
+          fi
+          echo "Applying BBRv3 patch with fuzz=$APPLY_FUZZ"
+          patch -p1 --fuzz="$APPLY_FUZZ" < "$PATCH" || { echo "::error::BBRv3 patch failed to apply"; exit 1; }
 
           # BBRv3 needs CONFIG_TCP_CONG_ADVANCED + CONFIG_TCP_CONG_BBR3 (same flags
           # the upstream WildKernels bbrv3 action sets in gki_defconfig).
