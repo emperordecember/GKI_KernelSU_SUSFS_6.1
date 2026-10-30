@@ -662,7 +662,10 @@ jobs:
         if: inputs.ksu_variant != 'no root manager'
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          UAPI_FILE=$(find KernelSU -type f -path '*/uapi/supercall.h' -print -quit 2>/dev/null || true)
+          # KernelSU-Next's setup.sh clones into 'KernelSU-Next'; all other
+          # variants clone into 'KernelSU'. Search both so the check works for
+          # every variant instead of only warning for Next.
+          UAPI_FILE=$(find KernelSU KernelSU-Next -type f -path '*/uapi/supercall.h' -print -quit 2>/dev/null || true)
           if [ -z "$UAPI_FILE" ]; then
             echo "::warning::KernelSU uapi/supercall.h not found; cannot verify the UAPI version"
             exit 0
