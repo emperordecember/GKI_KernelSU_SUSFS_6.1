@@ -1452,6 +1452,15 @@ jobs:
             echo "no root manager: clean kernel build, CONFIG_KSU not set"
           fi
 
+          if [ "${{ inputs.ksu_variant }}" == "BakaSU(ReSukiSU)" ]; then
+            # Keep the kernel-reported version string identical to the manager
+            # APK's versionName, e.g. "v4.2.0-rc3" instead of
+            # "v4.2.0-rc3-d5e9e025-dirty". The numeric KSU_VERSION is unchanged.
+            if ! grep -q '^CONFIG_KSU_FULL_NAME_FORMAT=' "$DEFCONFIG"; then
+              echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%"' >> "$DEFCONFIG"
+            fi
+          fi
+
           if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "BakaSU(ReSukiSU)" ] || [ "${{ inputs.ksu_variant }}" == "Next" ] || [ "${{ inputs.ksu_variant }}" == "RKSU" ] || [ "${{ inputs.ksu_variant }}" == "KowSU" ] || [ "${{ inputs.ksu_variant }}" == "FinaSU (FolkSU)" ]; then
             if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
               # "enabled": the KSU fork must provide its own KPM (CONFIG_KPM).
