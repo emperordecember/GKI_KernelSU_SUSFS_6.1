@@ -107,14 +107,10 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "BakaSU(ReSukiSU)" ]; then
             echo "This is the BakaSU(ReSukiSU) variant"
             git clone https://github.com/Baka-SU/BakaSU.git KernelSU
-            # build.yml builds the kernel from the SUSFS-synced branch when SUSFS
-            # is enabled, so compute the KSU version from the same branch,
-            # otherwise the manager version drifts from the kernel driver version
-            # (e.g. 35229 vs 35231).
-            if [ "${{ inputs.susfs }}" == "enabled" ]; then
-              echo "Checking out sync-susfs (matches the kernel branch)"
-              git -C KernelSU checkout sync-susfs
-            fi
+            # BakaSU now keeps the SUSFS integration in 'main' and no longer
+            # publishes 'sync-susfs'; build.yml uses main for every build, so
+            # the manager version is computed from the same branch/tree.
+            git -C KernelSU checkout main
           elif [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "This is the Official"
             git clone https://github.com/tiann/KernelSU.git KernelSU
@@ -223,17 +219,9 @@ jobs:
             REPO="Baka-SU/BakaSU"
             KSUM="manager"
             # The manager MUST come from the same branch the kernel is built
-            # from: build.yml checks out 'sync-susfs' when SUSFS is enabled
-            # (main hard-errors under CONFIG_KSU_SUSFS), and 'main' otherwise.
-            # sync-susfs is ahead of main (the SUSFS-sync commits), so its
-            # version code is higher -- e.g. 35231 vs main's 35229. Without this
-            # pin the search can fall back to a main-based manager and the APK
-            # versionCode drifts below the kernel driver version.
-            if [ "${{ inputs.susfs }}" == "enabled" ]; then
-              BRANCH="sync-susfs"
-            else
-              BRANCH="main"
-            fi
+            # from. BakaSU merged SUSFS into 'main' and removed 'sync-susfs',
+            # so main is now the only branch used by build.yml.
+            BRANCH="main"
           elif [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "KSU..."
             REPO="tiann/KernelSU"
@@ -307,8 +295,7 @@ jobs:
           RUNS_URL="https://api.github.com/repos/$REPO/actions/workflows/$FILENAME/runs?status=success&per_page=30"
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ] || [ "${{ inputs.kernelsu_variant }}" == "BakaSU(ReSukiSU)" ]; then
             # Restrict to the branch the kernel is built from so the manager can
-            # never be sourced from a different branch (e.g. main instead of
-            # sync-susfs), which is what caused the 35229-vs-35231 drift.
+            # never be sourced from a different branch than the kernel driver.
             RUNS_URL="https://api.github.com/repos/$REPO/actions/workflows/$FILENAME/runs?branch=$BRANCH&status=success&per_page=30"
           fi
 

@@ -291,16 +291,11 @@ jobs:
           rm -rf AnyKernel3/.git
 
           echo "Cloning SUSFS (branch: $SUSFS_BRANCH)..."
-          if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
-            clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
-          elif [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
-            if ! clone_retry https://github.com/ShirkNeko/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH" 2>/dev/null; then
-              echo "Branch $SUSFS_BRANCH not found in ShirkNeko repo, falling back to simonpunk upstream..."
-              clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
-            fi
-          else
-            clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
-          fi
+          # Always use upstream GitLab. The ShirkNeko GitHub mirror used to be
+          # preferred for SukiSU, but its last commit is from Oct 2025, so it
+          # misses the current SUSFS API and fixes (selinux_hide, priority uid
+          # filter, ...). Pinning is handled below via config/config.
+          clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
 
           if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
             SUSFS_FIXED_COMMIT=$(grep "^${SUSFS_BRANCH}=" "$LEGACY_SUKISU_CONFIG" | cut -d'=' -f2-)
@@ -503,14 +498,10 @@ jobs:
               BRANCH="-s main"
               ;;
             "BakaSU(ReSukiSU)")
-              # BakaSU's 'main' intentionally hard-errors under CONFIG_KSU_SUSFS
-              # ("Please wait susfs update"); the SUSFS-synced build lives in the
-              # 'sync-susfs' branch (Kconfig KSU_SUSFS + updated susfs_compat.mk).
-              if [ "${{ inputs.enable_susfs }}" = "false" ]; then
-                BRANCH="-s main"
-              else
-                BRANCH="-s sync-susfs"
-              fi
+              # BakaSU merged the SUSFS work back into 'main' and deleted the
+              # old 'sync-susfs' branch (checked 2026-10-30), so always use
+              # main for both SUSFS and non-SUSFS builds.
+              BRANCH="-s main"
               ;;
             "SukiSU")
               if [ "${{ inputs.enable_susfs }}" = "false" ]; then
