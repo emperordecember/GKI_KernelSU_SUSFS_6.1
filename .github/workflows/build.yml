@@ -317,6 +317,11 @@ jobs:
                 cd susfs4ksu
                 git checkout "$CUSTOM_COMMIT"
                 cd ..
+                PINNED_SUSFS_COMMIT=$(git -C susfs4ksu rev-parse HEAD)
+                SUSFS_TIP_COMMIT=$(git -C susfs4ksu rev-parse "refs/remotes/origin/$SUSFS_BRANCH" 2>/dev/null || true)
+                if [ -n "$SUSFS_TIP_COMMIT" ] && [ "$SUSFS_TIP_COMMIT" != "$PINNED_SUSFS_COMMIT" ]; then
+                  echo "::warning::SUSFS pin $PINNED_SUSFS_COMMIT is behind $SUSFS_BRANCH tip $SUSFS_TIP_COMMIT; update config/config to pick up upstream fixes"
+                fi
               fi
             fi
           fi
