@@ -1012,9 +1012,9 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           # Built-in NoMount: patch the kernel tree (fs/nomount + CONFIG_NOMOUNT=y).
-          # The prebuilt LKM is also attached by get-manager; the NoMount
-          # metamodule detects an already-integrated kernel and does not load the
-          # LKM, so shipping both is safe.
+          # get-manager also attaches the full NoMount metamodule (userspace +
+          # prebuilt LKMs); the module detects the built-in API and skips loading
+          # its LKM, so shipping both is safe.
           case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
             android12-5.10) PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.10_kernel_integration.patch" ;;
             android13-5.15) PATCH="$GITHUB_WORKSPACE/.github/patches/nomount/nomount_5.15_kernel_integration.patch" ;;
