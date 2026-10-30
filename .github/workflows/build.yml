@@ -116,6 +116,9 @@ jobs:
       # Pinned bmax121/KernelPatch release used by the "patched" KPM mode.
       # Includes the BTF struct/offset API (PR #284, merged 2026-10-14).
       KPM_VERSION: "0.13.9"
+      # Pinned Droidspaces release. The kernel patches have not changed since
+      # v7.1.0; later main commits only touch documentation.
+      DROIDSPACES_VERSION: "v7.1.0"
 
     steps:
       - name: Build info summary
@@ -655,6 +658,27 @@ jobs:
             echo "KSU_LATEST_COMMIT_DATE=unknown" >> $GITHUB_ENV
           fi
 
+      - name: Verify KernelSU UAPI version
+        if: inputs.ksu_variant != 'no root manager'
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          UAPI_FILE=$(find KernelSU -type f -path '*/uapi/supercall.h' -print -quit 2>/dev/null || true)
+          if [ -z "$UAPI_FILE" ]; then
+            echo "::warning::KernelSU uapi/supercall.h not found; cannot verify the UAPI version"
+            exit 0
+          fi
+          UAPI_VERSION=$(sed -nE 's/.*KERNEL_SU_UAPI_VERSION([[:space:]]*=[[:space:]]*|[[:space:]]+)([0-9]+).*/\2/p' "$UAPI_FILE" | head -1)
+          UAPI_VERSION=${UAPI_VERSION:-unknown}
+          echo "KernelSU UAPI version: $UAPI_VERSION ($UAPI_FILE)"
+          echo "KERNEL_SU_UAPI_VERSION=$UAPI_VERSION" >> "$GITHUB_ENV"
+
+          # The manager UI displays "versionName (versionCode/uapiVersion)"; the
+          # kernel must expose the same uapi version as the manager it ships with.
+          if [ "${{ inputs.ksu_variant }}" = "BakaSU(ReSukiSU)" ] && [ "$UAPI_VERSION" != "6" ]; then
+            echo "::error::BakaSU(ReSukiSU) requires KernelSU UAPI v6, found $UAPI_VERSION"
+            exit 1
+          fi
+
       # This runs for every variant, not just BakaSU(ReSukiSU): the two ZRAM steps further below
       # only ever ADD config when use_zram is true, they never actively turn ZRAM off.
       # If ZRAM already ships enabled in the stock gki_defconfig, or a KSU variant's own
@@ -1037,7 +1061,9 @@ jobs:
       - name: Clone Droidspaces patch repository
         if: inputs.droidspaces != 'off'
         run: |
-          git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git /tmp/Droidspaces-OSS
+          git clone --depth 1 --branch "$DROIDSPACES_VERSION" \
+            https://github.com/ravindu644/Droidspaces-OSS.git /tmp/Droidspaces-OSS
+          echo "Droidspaces version: $(git -C /tmp/Droidspaces-OSS describe --tags --always)"
           echo "DROIDSPACES_PATCHES=/tmp/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI" >> $GITHUB_ENV
 
       - name: Integrate Droidspaces support
@@ -1130,6 +1156,11 @@ jobs:
           # user_ns/ucounts are unconditional members and no struct layout
           # shifts (unlike SYSVIPC/IPC_NS), so no padding patch needed.
           enable_config CONFIG_USER_NS
+
+          # Droidspaces' "--net=macvlan" mode (there is no ACVLAN mode in
+          # Linux/Droidspaces). kABI-safe: macvlan only registers a new rtnl
+          # link kind and does not change any existing struct layout.
+          enable_config_if_defined CONFIG_MACVLAN
 
           # Optional: network-related config (Docker/NAT mode)
           enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
