@@ -86,6 +86,11 @@ on:
         required: false
         type: boolean
         default: false
+      use_usb_arsenal:
+        description: "Enable USB-Arsenal gadget support (USB storage/HID/NCM + CD-ROM/DVD patches)"
+        required: false
+        type: boolean
+        default: false
       supp_op:
         required: false
         type: boolean
@@ -119,6 +124,10 @@ jobs:
       # Pinned Droidspaces release. The kernel patches have not changed since
       # v7.1.0; later main commits only touch documentation.
       DROIDSPACES_VERSION: "v7.1.0"
+      # Pinned USB-Arsenal release. Kernel patches are stable between releases;
+      # 6.1 has no upstream folder yet, so the build applies the compatible
+      # subset from the 6.6/5.15 sets (see the USB-Arsenal step below).
+      USB_ARSENAL_VERSION: "v1.6.2"
 
     steps:
       - name: Build info summary
@@ -136,6 +145,7 @@ jobs:
           echo "NoMount enabled  : ${{ inputs.enable_nomount }}"
           echo "BBRv3 enabled    : ${{ inputs.use_bbrv3 }}"
           echo "VPNHide enabled  : ${{ inputs.use_vpnhide }}"
+          echo "USB-Arsenal      : ${{ inputs.use_usb_arsenal }}"
           echo "ZRAM boost       : ${{ inputs.use_zram }}"
           echo "BBG patch        : ${{ inputs.use_bbg }}"
           echo "KPM support      : ${{ inputs.use_kpm }}"
@@ -1200,6 +1210,96 @@ jobs:
             # regular users inside containers cannot reach the network
             disable_config CONFIG_ANDROID_PARANOID_NETWORK
           fi
+
+      - name: Enable USB-Arsenal kernel support
+        if: inputs.use_usb_arsenal
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          set -e
+          echo "Enabling USB-Arsenal gadget support..."
+
+          enable_config() {
+            local cfg="$1"
+            if grep -q "^${cfg}=y$" "$DEFCONFIG"; then
+              echo "  Already enabled: $cfg"
+            elif grep -q "^${cfg}=" "$DEFCONFIG"; then
+              sed -i "s/^${cfg}=.*/${cfg}=y/" "$DEFCONFIG"
+              echo "  Turned on: $cfg"
+            else
+              echo "${cfg}=y" >> "$DEFCONFIG"
+              echo "  Added: $cfg"
+            fi
+          }
+
+          config_defined() {
+            local name="${1#CONFIG_}"
+            grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" .
+          }
+
+          enable_config_if_defined() {
+            local cfg="$1"
+            if config_defined "$cfg"; then
+              enable_config "$cfg"
+            else
+              echo "  Not defined in current kernel: $cfg, skipping"
+            fi
+          }
+
+          # USB gadget functions used by USB-Arsenal: storage, HID keyboard/
+          # mouse, NCM tethering and the NAT rules behind it. RNDIS was removed
+          # from GKI after 5.10, so enable it only where the symbol exists.
+          enable_config_if_defined CONFIG_USB_CONFIGFS
+          enable_config_if_defined CONFIG_USB_CONFIGFS_MASS_STORAGE
+          enable_config_if_defined CONFIG_USB_CONFIGFS_F_HID
+          enable_config_if_defined CONFIG_USB_CONFIGFS_NCM
+          enable_config_if_defined CONFIG_USB_CONFIGFS_RNDIS
+          enable_config_if_defined CONFIG_IP_NF_NAT
+          enable_config_if_defined CONFIG_IP_NF_TARGET_MASQUERADE
+
+          git clone --depth 1 --branch "$USB_ARSENAL_VERSION" \
+            https://github.com/ravindu644/USB-Arsenal.git /tmp/USB-Arsenal
+          echo "USB-Arsenal version: $(git -C /tmp/USB-Arsenal describe --tags --always)"
+          PATCH_ROOT=/tmp/USB-Arsenal/kernel-patches
+
+          apply_patch_if_possible() {
+            local p="$1"
+            if [ ! -f "$p" ]; then
+              echo "  Missing patch: $p, skipping"
+              return 0
+            fi
+            if patch -p1 --batch --forward --dry-run --fuzz=3 < "$p" >/dev/null 2>&1; then
+              echo "  Applying $(basename "$p")"
+              patch -p1 --batch --forward --fuzz=3 --no-backup-if-mismatch < "$p" >/dev/null
+            elif patch -p1 --batch --reverse --dry-run --fuzz=3 < "$p" >/dev/null 2>&1; then
+              echo "  Already applied: $(basename "$p")"
+            else
+              echo "::warning::USB-Arsenal patch $(basename "$p") does not apply to ${{ inputs.kernel_version }}; skipping"
+            fi
+          }
+
+          # Upstream ships per-version folders for 5.10/5.15/6.6/6.12 but not
+          # 6.1. The 6.1 code is close enough to 6.6 that the DVD and f_hid
+          # fixes apply with fuzz; the bInterval attribute is taken from the
+          # 5.15 set. The 6.6 android_configfs_uevent patch targets a file that
+          # no longer exists on 6.1 and is intentionally not attempted.
+          case "${{ inputs.kernel_version }}" in
+            6.1)
+              for p in \
+                "$PATCH_ROOT"/6.6/0003-*.patch \
+                "$PATCH_ROOT"/6.6/0004-*.patch \
+                "$PATCH_ROOT"/6.6/0002-*.patch \
+                "$PATCH_ROOT"/5.15/0004-*.patch; do
+                apply_patch_if_possible "$p"
+              done
+              ;;
+            *)
+              for p in "$PATCH_ROOT/${{ inputs.kernel_version }}"/*.patch; do
+                apply_patch_if_possible "$p"
+              done
+              ;;
+          esac
+
+          echo "USB-Arsenal kernel support enabled."
 
       - name: Inject NTSync kernel config
         if: inputs.droidspaces != 'off' && inputs.droidspaces_ntsync

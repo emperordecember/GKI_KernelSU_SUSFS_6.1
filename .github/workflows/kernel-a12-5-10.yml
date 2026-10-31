@@ -129,6 +129,11 @@ on:
         required: false
         type: boolean
         default: false
+      use_usb_arsenal:
+        description: "Enable USB-Arsenal gadget support (USB storage/HID/NCM + CD-ROM/DVD patches)"
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       build_target:
@@ -171,6 +176,10 @@ on:
         type: boolean
         default: false
       use_vpnhide:
+        required: false
+        type: boolean
+        default: false
+      use_usb_arsenal:
         required: false
         type: boolean
         default: false
@@ -244,6 +253,7 @@ jobs:
       use_bbrv3: ${{ inputs.use_bbrv3 }}
       use_performance: ${{ inputs.use_performance }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
+      use_usb_arsenal: ${{ inputs.use_usb_arsenal }}
       supp_op: false
       enable_susfs: ${{ inputs.susfs == 'enabled' }}
       enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}

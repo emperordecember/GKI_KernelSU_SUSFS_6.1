@@ -135,6 +135,11 @@ on:
         required: false
         type: boolean
         default: false
+      use_usb_arsenal:
+        description: "Enable USB-Arsenal gadget support (USB storage/HID/NCM + CD-ROM/DVD patches)"
+        required: false
+        type: boolean
+        default: false
       use_performance:
         description: "Enable performance patches (mem ops, scheduler, fs, wakelock tuning)"
         required: false
@@ -182,6 +187,10 @@ on:
         type: string
         default: "disabled"
       use_vpnhide:
+        required: false
+        type: boolean
+        default: false
+      use_usb_arsenal:
         required: false
         type: boolean
         default: false
@@ -252,6 +261,7 @@ jobs:
       enable_nomount: ${{ inputs.nomount == 'nomount (hookless)' || inputs.nomount == 'nomount (ci)' }}
       nomount_variant: ${{ contains(inputs.nomount, 'ci') && 'ci' || 'hookless' }}
       use_vpnhide: ${{ inputs.use_vpnhide }}
+      use_usb_arsenal: ${{ inputs.use_usb_arsenal }}
       use_performance: ${{ inputs.use_performance }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
