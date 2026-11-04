@@ -61,7 +61,7 @@ on:
         type: boolean
         default: false
       enable_susfs:
-        description: "SUSFS mount hiding (requires a built-in root manager; ignored for 'no root manager')"
+        description: "SUSFS mount hiding (with 'no root manager' it uses the in-kernel standalone bridge)"
         required: true
         type: boolean
         default: true
@@ -158,16 +158,15 @@ jobs:
           echo "Stock config     : auto-detect config/stock_defconfig"
           echo "========================================"
 
-          # A clean kernel has neither KernelSU nor the SUSFS supercall bridge.
-          # Our SUSFS patch is wired to KernelSU's ksu_handle_sys_reboot(), so it
-          # cannot be applied without a built-in root manager. Warn loudly instead
-          # of silently building a kernel where SUSFS modules always report
-          # "CMD 0x555e1 ... not supported".
+          # 'no root manager' keeps a clean kernel (no CONFIG_KSU), but SUSFS
+          # still needs a reboot supercall dispatcher. scripts/susfs_fixes/
+          # standalone/ supplies one in-kernel, so report the bridge instead of
+          # warning that SUSFS was skipped.
           if [ "${{ inputs.enable_susfs }}" = "true" ] && [ "${{ inputs.ksu_variant }}" = "no root manager" ]; then
-            MSG="SUSFS is enabled, but the 'no root manager' variant builds a clean kernel: both KernelSU and the SUSFS supercall bridge are skipped. Use BakaSU/Next/SukiSU/Official for in-tree SUSFS, or the separate susfs4ksu-for-lkm module with KernelSU LKM."
-            echo "::warning::$MSG"
+            MSG="SUSFS is enabled for the 'no root manager' variant: the kernel stays free of CONFIG_KSU and uses the in-kernel standalone SUSFS supercall bridge."
+            echo "::notice::$MSG"
             {
-              echo "### SUSFS skipped: no root manager"
+              echo "### SUSFS: standalone bridge (no root manager)"
               echo
               echo "$MSG"
             } >> "$GITHUB_STEP_SUMMARY"
@@ -838,7 +837,7 @@ jobs:
           echo "Updated get_ksu_version_full template: $VERSION_TEMPLATE"
 
       - name: Apply SUSFS patch
-        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU' && inputs.ksu_variant != 'FinaSU (FolkSU)'
+        if: inputs.enable_susfs && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU' && inputs.ksu_variant != 'FinaSU (FolkSU)'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           ANDROID_VERSION: ${{ inputs.android_version }}
@@ -853,6 +852,14 @@ jobs:
         run: |
           echo "Applying SUSFS patch via scripts/susfs_fixes/apply.sh..."
           bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" || { echo "::error::SUSFS apply.sh failed"; exit 1; }
+      - name: Install standalone SUSFS bridge
+        if: inputs.enable_susfs && inputs.ksu_variant == 'no root manager'
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          # The SUSFS patch calls KernelSU's ksu_handle_sys_reboot(). When no
+          # root manager is built in, provide the dispatcher (and the KSU hook
+          # stubs) from an in-tree helper instead of pulling in KernelSU.
+          bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/standalone/install.sh" "$KERNEL_ROOT"
       - name: No-SUSFS variant notice
         if: inputs.enable_susfs && (inputs.ksu_variant == 'KowSU' || inputs.ksu_variant == 'RKSU' || inputs.ksu_variant == 'FinaSU (FolkSU)')
         run: |
@@ -1657,7 +1664,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Add SUSFS config
-        if: inputs.enable_susfs && inputs.ksu_variant != 'no root manager' && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU' && inputs.ksu_variant != 'FinaSU (FolkSU)'
+        if: inputs.enable_susfs && inputs.ksu_variant != 'KowSU' && inputs.ksu_variant != 'RKSU' && inputs.ksu_variant != 'FinaSU (FolkSU)'
         run: |
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_KSU_SUSFS=y
@@ -1671,6 +1678,9 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
+          if [ "${{ inputs.ksu_variant }}" = "no root manager" ]; then
+            echo "CONFIG_KSU_SUSFS_STANDALONE=y" >> "$DEFCONFIG"
+          fi
 
       # SUSFS-enabled KernelSU forks (pershoot KernelSU-Next dev-susfs, ...)
       # declare 'config KSU_SUSFS ... default y' in their own Kconfig. With
@@ -1680,7 +1690,7 @@ jobs:
       # "fatal error: 'linux/susfs.h' file not found". Pin it off explicitly
       # so the #ifdef CONFIG_KSU_SUSFS blocks compile out.
       - name: Force-disable SUSFS config when enable_susfs is off
-        if: ${{ !inputs.enable_susfs || inputs.ksu_variant == 'no root manager' }}
+        if: ${{ !inputs.enable_susfs || inputs.ksu_variant == 'KowSU' || inputs.ksu_variant == 'RKSU' || inputs.ksu_variant == 'FinaSU (FolkSU)' }}
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           # KernelSU setup.sh links the driver dir as common/drivers/kernelsu

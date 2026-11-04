@@ -1,0 +1,1 @@
+obj-$(CONFIG_KSU_SUSFS_STANDALONE) += susfs_standalone.o

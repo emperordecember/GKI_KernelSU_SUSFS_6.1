@@ -1,0 +1,65 @@
+# Appended to fs/Kconfig by scripts/susfs_fixes/standalone/install.sh.
+menu "SUSFS standalone (no KernelSU)"
+
+config KSU_SUSFS
+	bool "SUSFS addon"
+	depends on THREAD_INFO_IN_TASK
+	default y
+	help
+	  In-tree SUSFS support for kernels built without a built-in root
+	  manager.  The supercall dispatcher is provided by susfs_standalone.c.
+
+config KSU_SUSFS_SUS_PATH
+	bool "SUSFS sus_path"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SUS_MOUNT
+	bool "SUSFS sus_mount"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SUS_KSTAT
+	bool "SUSFS sus_kstat"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SPOOF_UNAME
+	bool "SUSFS spoof uname"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_ENABLE_LOG
+	bool "SUSFS logging"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+	bool "SUSFS hide ksu/susfs symbols"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+	bool "SUSFS spoof cmdline/bootconfig"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_OPEN_REDIRECT
+	bool "SUSFS open redirect"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_SUS_MAP
+	bool "SUSFS sus_map"
+	depends on KSU_SUSFS
+	default y
+
+config KSU_SUSFS_STANDALONE
+	bool "Standalone SUSFS supercall bridge"
+	depends on KSU_SUSFS && !KSU
+	default y
+	help
+	  Build the in-kernel reboot supercall dispatcher used when KernelSU is
+	  not compiled in.
+
+endmenu
