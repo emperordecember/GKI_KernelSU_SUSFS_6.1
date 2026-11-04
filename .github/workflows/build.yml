@@ -61,6 +61,7 @@ on:
         type: boolean
         default: false
       enable_susfs:
+        description: "SUSFS mount hiding (requires a built-in root manager; ignored for 'no root manager')"
         required: true
         type: boolean
         default: true
@@ -156,6 +157,21 @@ jobs:
           echo "Upload mode      : ${{ inputs.artifact_upload_mode }}"
           echo "Stock config     : auto-detect config/stock_defconfig"
           echo "========================================"
+
+          # A clean kernel has neither KernelSU nor the SUSFS supercall bridge.
+          # Our SUSFS patch is wired to KernelSU's ksu_handle_sys_reboot(), so it
+          # cannot be applied without a built-in root manager. Warn loudly instead
+          # of silently building a kernel where SUSFS modules always report
+          # "CMD 0x555e1 ... not supported".
+          if [ "${{ inputs.enable_susfs }}" = "true" ] && [ "${{ inputs.ksu_variant }}" = "no root manager" ]; then
+            MSG="SUSFS is enabled, but the 'no root manager' variant builds a clean kernel: both KernelSU and the SUSFS supercall bridge are skipped. Use BakaSU/Next/SukiSU/Official for in-tree SUSFS, or the separate susfs4ksu-for-lkm module with KernelSU LKM."
+            echo "::warning::$MSG"
+            {
+              echo "### SUSFS skipped: no root manager"
+              echo
+              echo "$MSG"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Free disk space
         uses: endersonmenezes/free-disk-space@v3
