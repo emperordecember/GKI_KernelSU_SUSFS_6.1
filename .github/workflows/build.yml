@@ -124,7 +124,7 @@ jobs:
       KPM_VERSION: "0.13.9"
       # Pinned Droidspaces release. The kernel patches have not changed since
       # v7.1.0; later main commits only touch documentation.
-      DROIDSPACES_VERSION: "v7.1.0"
+      DROIDSPACES_VERSION: "v7.2.0"
       # Pinned USB-Arsenal release. Kernel patches are stable between releases;
       # 6.1 has no upstream folder yet, so the build applies the compatible
       # subset from the 6.6/5.15 sets (see the USB-Arsenal step below).
@@ -878,6 +878,19 @@ jobs:
             sed -i 's/TRACK_THRONE_FORCE_SYNCHRONOUS/false/g' "$PKG_OBS"
             echo "Patched pkg_observer.c: TRACK_THRONE_FORCE_SYNCHRONOUS -> false"
           fi
+
+          # SUSFS v2.4.0 made the priority-uid-filter code conditional on
+          # CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER. Older built-in KernelSU
+          # forks (SukiSU, BakaSU) do not declare that symbol yet, while
+          # SukiSU's dispatcher calls susfs_set_priority_uid_filter()
+          # unconditionally, so the kernel would fail to link. Declare the
+          # option for any fork that lacks it; the value itself comes from
+          # the defconfig below.
+          KSU_KCONFIG="common/drivers/kernelsu/Kconfig"
+          if [ -f "$KSU_KCONFIG" ] && ! grep -q 'config KSU_SUSFS_PRIORITY_UID_FILTER' "$KSU_KCONFIG"; then
+            printf '\nconfig KSU_SUSFS_PRIORITY_UID_FILTER\n\tbool "Enable priority uid filter"\n\tdepends on KSU_SUSFS\n\tdefault y\n\thelp\n\t  Hide selected app uids from getpriority/setpriority and ioprio syscalls.\n' >> "$KSU_KCONFIG"
+            echo "Added KSU_SUSFS_PRIORITY_UID_FILTER to $(basename "$KSU_KCONFIG")"
+          fi
       - name: Un-static KernelSU selinux helpers for SUSFS 6.12
         if: inputs.enable_susfs && inputs.kernel_version == '6.12'
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -1207,9 +1220,11 @@ jobs:
           enable_config_if_defined CONFIG_IP_SET_HASH_NET
           enable_config_if_defined CONFIG_NETFILTER_XT_SET
 
-          # The REJECT target symbol name may differ across kernel versions; enable whichever config actually exists
+          # The REJECT target symbol name may differ across kernel versions; enable whichever config actually exists.
+          # Droidspaces v7.2.0 documents IP/IP6 REJECT instead of the legacy XT target.
           enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_REJECT
           enable_config_if_defined CONFIG_IP_NF_TARGET_REJECT
+          enable_config_if_defined CONFIG_IP6_NF_TARGET_REJECT
 
           echo "Droidspaces integration complete"
 
@@ -1677,6 +1692,7 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_MAP=y
+          CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
           EOF
           if [ "${{ inputs.ksu_variant }}" = "no root manager" ]; then
             echo "CONFIG_KSU_SUSFS_STANDALONE=y" >> "$DEFCONFIG"

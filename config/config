@@ -18,16 +18,17 @@ custom=true
 # ==================== SUSFS 各分支的 commit hash ====================
 # 仅当 custom=true 时生效
 #
-# Pinned to the 2026-10-29 tips. They contain:
-#   35cbfe11 "susfs: Add priority uid filter" (rebased per branch),
-#   "priority uid filter: Fix UAF bugs..." and "KernelSU: Fix compiler error".
-# Do NOT pin the literal 35cbfe11 SHA: branches are rebased, so it only
-# exists on gki-android12-5.10 and predates the UAF fix.
-gki-android12-5.10=8930474a298d07ab9f1beca926779cbc3656b79e
-gki-android13-5.15=e30f1502a870434150efb16bd4a0d33277d7da57
-gki-android14-6.1=ee155a1ad4219804a7c54cb39dd4fa1b5c2a3fa4
-gki-android15-6.6=93114563fd6b08092b9ce8c0309738c921ac8bd1
-gki-android16-6.12=6b60a305d418148bd311f4fc9bddedc82d99e1fc
+# Pinned to the v2.4.0 tips (2026-11-08). They include:
+#   - priority_uid_filter promoted to a separate Kconfig feature
+#   - selinux_hide refactor (safer hash/full tuple comparison)
+#   - ratelimited sus selinux type/rule logging
+# Do NOT pin the literal 2.4.0 branch hashes from another branch: susfs4ksu
+# branches are rebased independently, so every kernel line has its own SHA.
+gki-android12-5.10=45a057536ddba12fd59fb583a8f5375f83be703e
+gki-android13-5.15=ae1babc2cddeee809a0d0952ae09dae82a73e456
+gki-android14-6.1=a2165b6f875b73e2f87d3c6f12814efac8de061d
+gki-android15-6.6=b74a5a2b4c8a4b0fe2835fbb53869d1f55fa8a85
+gki-android16-6.12=f83ae68add82d1c564e9428ba81dd537fa721924
 
 # ==================== SukiSU 的 commit hash ====================
 # 仅当 custom=true 且使用 SukiSU 变体时生效
