@@ -247,7 +247,7 @@ if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
   fi
 fi
 
-if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ]; then
+if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_VARIANT" == "SukiSU" ] || [ "$KSU_VARIANT" == "SukiSU(40726)" ] || [ "$KSU_VARIANT" == "SukiSU(40548)" ] || [ "$KSU_VARIANT" == "BakaSU(ReSukiSU)" ] || [ "$KSU_VARIANT" == "XXKSU" ] || [ "$KSU_VARIANT" == "no root manager" ]; then
   fix_namespace_susfs_mount_decls() {
     local label="$1"
     local marker_pattern="$2"
@@ -378,11 +378,15 @@ if [ "$KSU_VARIANT" == "Official" ] || [ "$KSU_VARIANT" == "Next" ] || [ "$KSU_V
     fi
 
     # Fix for 6.12.58+: exec.c header context change causes the SUSFS patch to miss susfs_def.h
-    if grep -q 'susfs_is_current_proc_umounted' ./fs/exec.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/exec.c; then
+    if grep -qE 'susfs_is_current_proc_(umounted|no_su)' ./fs/exec.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/exec.c; then
       if grep -qF '#include <linux/dma-buf.h>' ./fs/exec.c; then
         sed -i '/#include <linux\/dma-buf.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
-      else
+      elif grep -qF '#include <linux/ksm.h>' ./fs/exec.c; then
         sed -i '/#include <linux\/ksm.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
+      elif grep -qF '#include <linux/uaccess.h>' ./fs/exec.c; then
+        sed -i '/#include <linux\/uaccess.h>/i #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
+      else
+        sed -i '0,/^#include /s//#ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif\n&/' ./fs/exec.c
       fi
       echo "Fixed exec.c missing susfs_def.h"
     fi
