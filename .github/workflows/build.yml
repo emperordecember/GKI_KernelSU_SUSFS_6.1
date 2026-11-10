@@ -1876,7 +1876,7 @@ jobs:
                 if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
                   LTO_FLAG="--lto=none"
                 fi
-                tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG //common:kernel_aarch64_dist || exit 1
+                tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --nokmi_symbol_list_strict_mode $LTO_FLAG $FRAG_FLAG //common:kernel_aarch64_dist || exit 1
                 strings ./bazel-bin/common/kernel_aarch64/Image | grep 'Linux version'
               fi
 
