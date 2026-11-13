@@ -47,9 +47,9 @@ jobs:
   get_ksu_manager:
     runs-on: ubuntu-24.04
     outputs:
-      # 输出1: KSU版本号
+      # Выход 1: версия KSU
       ksuVer: ${{ steps.get_version.outputs.kversion }}
-      # 输出2: SUSFS版本号
+      # Выход 2: версия SUSFS
       susVer: ${{ steps.get_version.outputs.sversion }}
     env:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
@@ -65,8 +65,8 @@ jobs:
           echo "EVENT NAME: ${{ github.event_name }}"
           echo " "
           echo "--- CALLER INFORMATION ---"
-          echo "  - Caller Repository: ${{ github.caller_repository }}"
-          echo "  - Caller Workflow:   ${{ github.caller_workflow }}"
+          echo "  - Repository:        ${{ github.repository }}"
+          echo "  - Workflow:          ${{ github.workflow }}"
           echo "  - Caller User:       ${{ github.triggering_actor }}"
           echo " "
           echo "--- WORKFLOW & JOB INFORMATION ---"
@@ -81,12 +81,12 @@ jobs:
           echo " "
           echo "======================================================="
 
-      - name: 安装依赖
+      - name: Установка зависимостей
         run: |
           sudo apt-get update
           sudo apt-get install -y git curl jq
 
-      - name: 获取 KSU & SUSFS 版本
+      - name: Получение версий KSU и SUSFS
         id: get_version
         run: |
 
@@ -133,7 +133,7 @@ jobs:
 
           cd KernelSU
 
-          # 计算KSU版本号
+          # Считаем версию KSU
           KSU_GIT_VERSION=$(git rev-list --count HEAD)
 
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
@@ -162,7 +162,7 @@ jobs:
           echo $KSU_VERSION
           echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
 
-          # 计算SUSFS版本号
+          # Считаем версию SUSFS
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU(40726)" ]; then
             SUS_VERSION="v2.1.0"
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU(40548)" ]; then
@@ -173,11 +173,11 @@ jobs:
           fi
           echo $SUS_VERSION
 
-          # 导出这两个值给release
+          # Экспортируем оба значения в release
           echo "kversion=$KSU_VERSION" >> $GITHUB_OUTPUT
           echo "sversion=$SUS_VERSION" >> $GITHUB_OUTPUT
 
-      - name: 添加 KernelSU
+      - name: Добавление KernelSU
         id: add_KSU
         continue-on-error: true
         run: |
@@ -187,13 +187,13 @@ jobs:
             *) LEGACY_RELEASE_TAG="" ;;
           esac
           if [ -n "$LEGACY_RELEASE_TAG" ]; then
-            echo "下载 ${{ inputs.kernelsu_variant }} 管理器..."
+            echo "Скачиваем менеджер ${{ inputs.kernelsu_variant }}..."
             mkdir -p "manager-artifacts/$LEGACY_DIR"
             MANAGER_URL=$(curl -fsSL "https://api.github.com/repos/zzh20188/GKI_KernelSU_SUSFS/releases/tags/$LEGACY_RELEASE_TAG" |
               jq -r '.assets[] | select(.name | startswith("SukiSU_") and endswith("-release.apk")) | .browser_download_url' |
               head -n 1)
             if [ -z "$MANAGER_URL" ]; then
-              echo "未找到 ${{ inputs.kernelsu_variant }} 管理器下载地址。"
+              echo "Не найден адрес загрузки менеджера ${{ inputs.kernelsu_variant }}."
               exit 1
             fi
             curl -fL -o "manager-artifacts/$LEGACY_DIR/${LEGACY_DIR}-release.apk" "$MANAGER_URL"
@@ -243,10 +243,10 @@ jobs:
           FILENAME=$([[ "${{ inputs.kernelsu_variant }}" == "Next" ]] && echo "build-manager-ci.yml" || echo "build-manager.yml")
 
 
-          # 按内核 KSU 版本选择 Manager，避免 APK 版本领先于内核版本
+          # Выбираем Manager по версии KSU ядра, чтобы APK не опережал ядро
           TARGET_KSU_VERSION="${KSU_VERSION:-}"
           if ! [[ "$TARGET_KSU_VERSION" =~ ^[0-9]+$ ]]; then
-            echo "无效的目标 KSU 版本: $TARGET_KSU_VERSION"
+            echo "Некорректная целевая версия KSU: $TARGET_KSU_VERSION"
             exit 1
           fi
 
@@ -299,10 +299,10 @@ jobs:
             RUNS_URL="https://api.github.com/repos/$REPO/actions/workflows/$FILENAME/runs?branch=$BRANCH&status=success&per_page=30"
           fi
 
-          echo "开始查找不高于 KSU $TARGET_KSU_VERSION 的 Manager 产物..."
+          echo "Ищем Manager с KSU не выше $TARGET_KSU_VERSION..."
           for PAGE in $(seq 1 10); do
             echo "--------------------------------------------------"
-            echo "正在检查第 ${PAGE} 页历史构建..."
+            echo "Проверяем страницу ${PAGE} истории сборок..."
             RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$RUNS_URL&page=$PAGE")
             RUN_COUNT=$(printf '%s' "$RUNS" | jq '.workflow_runs | length')
             if [ "$RUN_COUNT" -eq 0 ]; then
@@ -320,18 +320,18 @@ jobs:
               # and are not the official release manager.
               case "$RUN_EVENT" in
                 pull_request*)
-                  echo "跳过构建 $BUILD_ID ($HEAD_BRANCH): pull_request build (PR debug manager)"
+                  echo "Пропускаем сборку $BUILD_ID ($HEAD_BRANCH): pull_request build (PR debug manager)"
                   continue
                   ;;
               esac
 
               RUN_KSU_VERSION=$(calculate_run_ksu_version "$HEAD_SHA" || true)
               if ! [[ "$RUN_KSU_VERSION" =~ ^[0-9]+$ ]]; then
-                echo "跳过构建 $BUILD_ID: 无法根据提交 $HEAD_SHA 计算 KSU 版本"
+                echo "Пропускаем сборку $BUILD_ID: не удалось вычислить версию KSU по коммиту $HEAD_SHA"
                 continue
               fi
               if [ "$RUN_KSU_VERSION" -gt "$TARGET_KSU_VERSION" ]; then
-                echo "跳过构建 $BUILD_ID ($HEAD_BRANCH): Manager KSU $RUN_KSU_VERSION 高于内核 KSU $TARGET_KSU_VERSION"
+                echo "Пропускаем сборку $BUILD_ID ($HEAD_BRANCH): KSU Manager $RUN_KSU_VERSION выше KSU ядра $TARGET_KSU_VERSION"
                 continue
               fi
 
@@ -339,7 +339,7 @@ jobs:
                 "https://api.github.com/repos/$REPO/actions/runs/$BUILD_ID/artifacts")
               CANDIDATE_LIST=$(get_manager_artifacts "$ARTIFACTS")
               if [ -z "$CANDIDATE_LIST" ]; then
-                echo "跳过构建 $BUILD_ID ($HEAD_BRANCH): 未找到包含 '$KSUM' 的产物"
+                echo "Пропускаем сборку $BUILD_ID ($HEAD_BRANCH): не найдены артефакты с '$KSUM'"
                 continue
               fi
 
@@ -348,7 +348,7 @@ jobs:
                 BEST_VERSION="$RUN_KSU_VERSION"
                 BEST_BUILD_ID="$BUILD_ID"
                 BEST_BRANCH="$HEAD_BRANCH"
-                echo "候选 Manager: 构建 $BUILD_ID ($HEAD_BRANCH), KSU $RUN_KSU_VERSION"
+                echo "Кандидат Manager: сборка $BUILD_ID ($HEAD_BRANCH), KSU $RUN_KSU_VERSION"
               fi
 
               if [ "$RUN_KSU_VERSION" -eq "$TARGET_KSU_VERSION" ]; then
@@ -358,10 +358,10 @@ jobs:
           done
 
           if [ -z "$DOWNLOAD_LIST" ]; then
-            echo "未获取到 KSU 版本小于等于 $TARGET_KSU_VERSION 的 Manager artifact 下载地址列表。"
+            echo "Не получен список ссылок на Manager artifact с версией KSU не выше $TARGET_KSU_VERSION."
             exit 1
           fi
-          echo "选择 Manager 构建 $BEST_BUILD_ID ($BEST_BRANCH), KSU $BEST_VERSION"
+          echo "Выбран Manager из сборки $BEST_BUILD_ID ($BEST_BRANCH), KSU $BEST_VERSION"
 
           # BakaSU(ReSukiSU): the manager APK's versionCode is frozen at build
           # time from the commit its own CI built from. If no build exists yet
@@ -371,11 +371,11 @@ jobs:
             echo "::warning::BakaSU(ReSukiSU) manager KSU $BEST_VERSION (build $BEST_BUILD_ID on $BEST_BRANCH) != kernel KSU $TARGET_KSU_VERSION; no same-branch manager build for the kernel commit yet"
           fi
 
-          # 下载并解压所有 Manager 产物
+          # Скачиваем и распаковываем все Manager-артефакты
           echo "$DOWNLOAD_LIST" | while IFS=$'\t' read -r NAME URL; do
             SAFE_NAME=$(echo "$NAME" | tr '/ ' '__')
             ZIP_NAME="${{ inputs.kernelsu_variant }}-${SAFE_NAME}(${{ env.KSU_VERSION }}).zip"
-            echo "下载 $NAME -> $ZIP_NAME"
+            echo "Скачиваем $NAME -> $ZIP_NAME"
             curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -o "$ZIP_NAME" "$URL"
             mkdir -p "manager-artifacts/$SAFE_NAME"
             unzip -o "$ZIP_NAME" -d "manager-artifacts/$SAFE_NAME"
@@ -386,19 +386,19 @@ jobs:
             # BakaSU builds split-ABI APKs (arm64-v8a/x86_64/armeabi-v7a/riscv64)
             # plus a universal one, not a single multi-lib APK. Keep both the
             # arm64-v8a and the universal release APKs, drop debug/other ABIs.
-            echo "仅保留 BakaSU(ReSukiSU) arm64-v8a + universal release 管理器..."
+            echo "Оставляем только release-менеджеры BakaSU(ReSukiSU) arm64-v8a + universal..."
             find manager-artifacts -type f -name "*.apk" \
               ! -name "*-arm64-v8a-release.apk" \
               ! -name "*-universal-release.apk" -delete
             find manager-artifacts -type f -name "*debug*.apk" -delete
             if ! find manager-artifacts -type f \( -name "*-arm64-v8a-release.apk" -o -name "*-universal-release.apk" \) | grep -q .; then
-              echo "未找到 BakaSU(ReSukiSU) arm64-v8a/universal release 管理器。"
+              echo "Не найдены release-менеджеры BakaSU(ReSukiSU) arm64-v8a/universal."
               exit 1
             fi
             find manager-artifacts -type f -name "*.apk" -print
           fi
 
-      - name: 添加 SUSFS 模块
+      - name: Добавление модуля SUSFS
         id: add_SUSFS
         if: inputs.susfs == 'enabled'
         continue-on-error: true
@@ -409,7 +409,7 @@ jobs:
             *) LEGACY_RELEASE_TAG="" ;;
           esac
           if [ -n "$LEGACY_RELEASE_TAG" ]; then
-            echo "下载 ${{ inputs.kernelsu_variant }} 对应的 SUSFS 模块..."
+            echo "Скачиваем модуль SUSFS для ${{ inputs.kernelsu_variant }}..."
             mkdir -p susfs-module
             curl -fL -o susfs-module/ksu_module_susfs.zip \
               "https://github.com/zzh20188/GKI_KernelSU_SUSFS/releases/download/$LEGACY_RELEASE_TAG/ksu_module_susfs.zip"
@@ -432,37 +432,37 @@ jobs:
 
           echo $DOWNLOAD_URL
           echo $NAME
-          # 下载 Manager 文件
+          # Скачиваем файл Manager
           curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -o "$NAME" "$DOWNLOAD_URL"
-          echo "$NAME 文件已下载.zip"
+          echo "$NAME скачан.zip"
 
 
-          # 解压 artifact zip 获取里面的模块文件
+          # Распаковываем artifact zip, чтобы достать файлы модуля
           mkdir -p susfs-module
           unzip "$NAME" -d susfs-temp
 
-          # 检查解压后的内容：如果是散装文件则打包成 zip
+          # Проверяем содержимое: если файлы россыпью — упаковываем в zip
           cd susfs-temp
           if ls *.zip 1>/dev/null 2>&1; then
-            # 里面已经是 zip 文件，直接移动
+            # Внутри уже zip-файл, просто перемещаем
             mv *.zip ../susfs-module/
           else
-            # 是散装文件，打包成 zip
+            # Файлы россыпью — упаковываем в zip
             zip -r "../susfs-module/ksu_module_susfs.zip" .
           fi
           cd ..
           rm -rf susfs-temp "$NAME"
 
-      - name: 添加 NoMount 模块
+      - name: Добавление модуля NoMount
         id: add_nomount
         if: inputs.nomount != 'disabled'
         run: |
           if [ "${{ inputs.nomount }}" == "mountify" ]; then
-            echo "下载 Mountify 模块 (latest CI from backslashxx/mountify)..."
+            echo "Скачиваем модуль Mountify (latest CI from backslashxx/mountify)..."
             echo "::notice::Attaching Mountify metamodule (OverlayFS)"
             REPO="backslashxx/mountify"
           else
-            echo "下载 NoMount 模块 (latest CI from maxsteeel/nomount)..."
+            echo "Скачиваем модуль NoMount (latest CI from maxsteeel/nomount)..."
             case "${{ inputs.nomount }}" in
               "nomount (ci)") echo "::notice::NoMount module from branch: dev"; NOMOUNT_BRANCH="dev" ;;
               *) echo "::notice::NoMount module from branch: master"; NOMOUNT_BRANCH="master" ;;
@@ -530,9 +530,9 @@ jobs:
 
       - name: Notify on failure
         if: steps.add_KSU.outcome == 'failure'
-        run: echo "下载CI构建的KSU失败!"
+        run: echo "Не удалось скачать KSU из CI!"
 
-      - name: 上传APK
+      - name: Загрузка APK
         if: steps.add_KSU.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
@@ -540,7 +540,7 @@ jobs:
           path: |
             manager-artifacts/**/*.apk
 
-      - name: 上传SUSFS模块
+      - name: Загрузка модуля SUSFS
         if: steps.add_SUSFS.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
@@ -551,7 +551,7 @@ jobs:
           # hands the user "zip containing zip". Prefer a single-level download.
           archive: false
 
-      - name: 上传NoMount模块
+      - name: Загрузка модуля NoMount
         if: steps.add_nomount.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
@@ -594,7 +594,7 @@ jobs:
           done
           ls -la vpnhide-companion/
 
-      - name: 上传VPNHide companion
+      - name: Загрузка VPNHide companion
         if: inputs.use_vpnhide
         uses: actions/upload-artifact@v7
         with:

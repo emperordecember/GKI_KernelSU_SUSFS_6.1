@@ -322,17 +322,18 @@ jobs:
           # Always use upstream GitLab. The ShirkNeko GitHub mirror used to be
           # preferred for SukiSU, but its last commit is from Oct 2025, so it
           # misses the current SUSFS API and fixes (selinux_hide, priority uid
-          # filter, ...). Pinning is handled below via config/config.
+          # filter, ...). The branch tip is built by default; config/config can
+          # optionally pin an exact commit.
           clone_retry https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b "$SUSFS_BRANCH"
 
           if [ -n "$LEGACY_SUKISU_CONFIG" ]; then
-            SUSFS_FIXED_COMMIT=$(grep "^${SUSFS_BRANCH}=" "$LEGACY_SUKISU_CONFIG" | cut -d'=' -f2-)
-            if [ -z "$SUSFS_FIXED_COMMIT" ]; then
-              echo "No pinned SUSFS commit configured for $SUSFS_BRANCH in $LEGACY_SUKISU_CONFIG" >&2
-              exit 1
+            SUSFS_FIXED_COMMIT=$(grep "^${SUSFS_BRANCH}=" "$LEGACY_SUKISU_CONFIG" | cut -d'=' -f2- || true)
+            if [ -n "$SUSFS_FIXED_COMMIT" ]; then
+              echo "${{ inputs.ksu_variant }} pinned SUSFS commit: $SUSFS_FIXED_COMMIT"
+              git -C susfs4ksu checkout "$SUSFS_FIXED_COMMIT"
+            else
+              echo "${{ inputs.ksu_variant }}: using latest $SUSFS_BRANCH tip"
             fi
-            echo "${{ inputs.ksu_variant }} pinned SUSFS commit: $SUSFS_FIXED_COMMIT"
-            git -C susfs4ksu checkout "$SUSFS_FIXED_COMMIT"
           fi
 
           CONFIG_FILE="config/config"
@@ -897,7 +898,13 @@ jobs:
         run: |
           SELINUX_HIDE="common/drivers/kernelsu/feature/selinux_hide.c"
           if [ -f "$SELINUX_HIDE" ]; then
-            sed -i 's/^static int security_context_to_sid_with_policy/int security_context_to_sid_with_policy/; s/^static int security_sid_to_context_with_policy/int security_sid_to_context_with_policy/; s/^static void security_compute_av_user_with_policy/void security_compute_av_user_with_policy/' "$SELINUX_HIDE"
+            # SUSFS 6.12 loads these helpers from its own policy code. Keep the
+            # forward declarations and definitions in sync: some definitions
+            # carry attributes (__nocfi) between the return type and the name,
+            # so a plain '^static int name' substitution misses them.
+            sed -i -E '/^static[[:space:]]/{
+              /security_context_to_sid_with_policy|security_sid_to_context_with_policy|security_compute_av_user_with_policy/ s/^static[[:space:]]+//
+            }' "$SELINUX_HIDE"
             echo "Un-static'd KernelSU selinux *_with_policy helpers"
           fi
 

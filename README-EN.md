@@ -10,7 +10,7 @@
 [![KernelSU](https://img.shields.io/badge/KernelSU-Supported-5AA300?style=flat-square)](https://kernelsu.org/)
 [![SUSFS](https://img.shields.io/badge/SUSFS-Integrated-E67E22?style=flat-square)](https://gitlab.com/simonpunk/susfs4ksu)
 
-English | [**简体中文**](README.md)
+English | [**Русский**](README.md)
 
 ---
 

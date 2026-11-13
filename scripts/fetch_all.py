@@ -35,7 +35,7 @@ def fetch_all():
             print(f"-> {detail}")
             time.sleep(0.2)
 
-        # 抓取 LTS
+        # Получаем LTS
         lts_label = f"{android_ver}-{kernel_ver}-lts"
         print(f"  [{lts_label}] ", end="", flush=True)
         lts_text = fetch_lts(android_ver, kernel_ver)

@@ -1,4 +1,4 @@
-name: 内核构建 - Android 13 (5.15)
+name: Сборка ядра — Android 13 (5.15)
 
 permissions:
   contents: write
@@ -35,7 +35,7 @@ on:
           - "X"
         default: "all"
       kernelsu_variant:
-        description: "KernelSU 变体"
+        description: "Вариант KernelSU"
         required: true
         type: choice
         options:
@@ -74,21 +74,21 @@ on:
         required: false
         type: string
       build_time:
-        description: "自定义构建时间 (可选，N或留空=当前UTC)"
+        description: "Своё время сборки (необязательно; пусто = текущее UTC)"
         required: false
         type: string
         default: "Sun Dec 01 08:10:00 UTC 2024"
       use_kpm:
-        description: "KPM 功能（enabled=KSU 自带，patched=注入 KernelPatch）"
+        description: "Поддержка KPM (enabled = встроенный KPM KernelSU, patched = внедрение KernelPatch)"
         required: true
         type: choice
-        default: "disabled (关闭)"
+        default: "disabled"
         options:
-          - "disabled (关闭)"
-          - "enabled (开启)"
-          - "patched (注入 KernelPatch)"
+          - "disabled"
+          - "enabled"
+          - "patched (inject KernelPatch)"
       droidspaces:
-        description: "Droidspaces 容器支持"
+        description: "Поддержка контейнеров Droidspaces"
         required: false
         type: choice
         options:
@@ -98,35 +98,35 @@ on:
           - "345"
         default: "off"
       artifact_upload_mode:
-        description: "构建产物上传模式"
+        description: "Режим загрузки артефактов сборки"
         required: true
         type: choice
         options:
-          - "仅上传 AnyKernel3.zip"
-          - "上传全部"
-        default: "仅上传 AnyKernel3.zip"
+          - "AnyKernel3.zip only"
+          - "Upload all"
+        default: "AnyKernel3.zip only"
       droidspaces_ntsync:
-        description: "启用 Droidspaces 容器 NTSync 支持（需启用 Droidspaces）"
+        description: "Включить NTSync в контейнерах Droidspaces (требуется Droidspaces)"
         required: false
         type: boolean
         default: false
       use_zram:
-        description: "启用 ZRAM 增强算法"
+        description: "Включить улучшенный алгоритм ZRAM"
         required: true
         type: boolean
         default: false
       use_bbg:
-        description: "启用 BBG 防格机"
+        description: "Включить BBG (Baseband Guard, защита от кирпича)"
         required: true
         type: boolean
         default: false
       use_rekernel:
-        description: "启用 Re-Kernel 驱动"
+        description: "Включить драйвер Re-Kernel"
         required: false
         type: boolean
         default: false
       cve_2026_43499_patch:
-        description: "应用 CVE-2026-43499 rtmutex 修复链"
+        description: "Применить цепочку исправлений CVE-2026-43499 (rtmutex)"
         required: false
         type: boolean
         default: false
@@ -205,13 +205,13 @@ on:
       artifact_upload_mode:
         required: false
         type: string
-        default: "上传全部"
+        default: "Upload all"
       droidspaces_ntsync:
         required: false
         type: boolean
         default: false
       called_from_main:
-        description: "是否从 main.yml 调用（内部使用）"
+        description: "Вызов из main.yml (служебное)"
         required: false
         type: boolean
         default: false
@@ -267,7 +267,7 @@ jobs:
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
 
-  # 仅在直接触发时运行，从 main.yml 调用时跳过
+  # Запускается только при прямом вызове; при вызове из main.yml пропускается
   get-ksu-manager:
     if: ${{ !inputs.called_from_main && inputs.kernelsu_variant != 'no root manager' }}
     uses: ./.github/workflows/get-manager.yml

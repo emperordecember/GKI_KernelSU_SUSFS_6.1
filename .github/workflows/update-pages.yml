@@ -2,7 +2,7 @@ name: Update Data & Deploy Pages
 
 on:
   schedule:
-    - cron: '0 8 */3 * *'  # 每 3 天 UTC 8:00
+    - cron: '0 8 */3 * *'  # каждые 3 дня в 08:00 UTC
   workflow_dispatch:
   push:
     branches: [dev]
@@ -75,7 +75,7 @@ jobs:
       - name: Copy data to web directory
         run: cp -r data/ web/data/
 
-      # 构建前端资源（webpack 打包 JS/SCSS → dist/）
+      # Сборка фронтенда (webpack: JS/SCSS → dist/)
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

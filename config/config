@@ -1,35 +1,32 @@
-# ==================== 自定义提交配置 ====================
-# 本文件用于配置 SUSFS 和 SukiSU 仓库的自定义提交
+# ==================== Конфигурация пользовательских коммитов ====================
+# Этот файл задаёт фиксацию конкретных коммитов SUSFS и SukiSU.
 #
-# 使用说明:
-#   1. 将 custom 设为 true 启用自定义提交功能
-#   2. 在对应配置项后填入想要使用的 commit hash
-#   3. 留空表示使用该分支的最新提交
+# Как пользоваться:
+#   1. Установите custom=true, чтобы включить фиксацию коммитов.
+#   2. Впишите нужный commit hash в соответствующую строку.
+#   3. Пустое значение = использовать последний коммит ветки.
 #
-# 示例:
+# Пример:
 #   gki-android14-6.1=abc123def456
 #   sukisu=def789abc123
 #
-# ================================================================
+# ================================================================================
 
-# 是否启用自定义提交 (true/false)
-custom=true
+# Включить фиксацию коммитов (true/false)
+# false = всегда собирать последний коммит ветки susfs4ksu (рекомендуется).
+# Пины используются только при custom=true.
+custom=false
 
-# ==================== SUSFS 各分支的 commit hash ====================
-# 仅当 custom=true 时生效
-#
-# Pinned to the v2.4.0 tips (2026-11-08). They include:
-#   - priority_uid_filter promoted to a separate Kconfig feature
-#   - selinux_hide refactor (safer hash/full tuple comparison)
-#   - ratelimited sus selinux type/rule logging
-# Do NOT pin the literal 2.4.0 branch hashes from another branch: susfs4ksu
-# branches are rebased independently, so every kernel line has its own SHA.
-gki-android12-5.10=45a057536ddba12fd59fb583a8f5375f83be703e
-gki-android13-5.15=ae1babc2cddeee809a0d0952ae09dae82a73e456
-gki-android14-6.1=a2165b6f875b73e2f87d3c6f12814efac8de061d
-gki-android15-6.6=b74a5a2b4c8a4b0fe2835fbb53869d1f55fa8a85
-gki-android16-6.12=f83ae68add82d1c564e9428ba81dd537fa721924
+# ==================== Commit hash для веток SUSFS ====================
+# Используется только при custom=true. Пустое значение = последний коммит ветки.
+# Ветки SUSFS перебазируются независимо, поэтому хеш из одной линейки ядер
+# не существует в другой.
+gki-android12-5.10=
+gki-android13-5.15=
+gki-android14-6.1=
+gki-android15-6.6=
+gki-android16-6.12=
 
-# ==================== SukiSU 的 commit hash ====================
-# 仅当 custom=true 且使用 SukiSU 变体时生效
+# ==================== Commit hash для SukiSU ====================
+# Используется только при custom=true и только для варианта SukiSU.
 sukisu=

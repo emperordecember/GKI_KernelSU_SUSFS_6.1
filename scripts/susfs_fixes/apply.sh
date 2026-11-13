@@ -57,18 +57,21 @@ if [[ ! "$CURRENT_SUB" =~ ^[0-9]+$ ]]; then
   CURRENT_SUB=99999
 fi
 
-# 兜底兼容 SUSFS 上游误将 5.15+ 的 set_nameidata 四参数调用用于 Android 12 5.10，上游修复后自动跳过
+# Совместимость: upstream SUSFS ошибочно использует четырёхаргументный
+# set_nameidata() из 5.15+ для Android 12 5.10; после исправления upstream
+# этот блок автоматически пропускается.
 if [[ "$ANDROID_VERSION" == "android12" && "$KERNEL_VERSION" == "5.10" ]] \
   && grep -qF 'static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)' fs/namei.c \
   && grep -qF 'set_nameidata(nd, old_dfd, fake_filename, NULL);' "$SUSFS_PATCH"; then
-  echo "检测到 Android 12 5.10 set_nameidata 三参数接口，修正 SUSFS 补丁中的四参数调用"
+  echo "Обнаружен трёхаргументный set_nameidata в Android 12 5.10, исправляю вызов в патче SUSFS"
   sed -i 's/set_nameidata(nd, old_dfd, fake_filename, NULL);/set_nameidata(nd, old_dfd, fake_filename);/g' "$SUSFS_PATCH"
 fi
 
-# 兼容 5.10.66~5.10.209、5.15.74~5.15.144 和 6.1.25~6.1.68 缺少 VMA padding 接口
+# Совместимость с 5.10.66~5.10.209, 5.15.74~5.15.144 и 6.1.25~6.1.68,
+# где отсутствует интерфейс VMA padding.
 if grep -qF 'VMA_PAD_START(vma)' "$SUSFS_PATCH" \
   && ! grep -Rqs 'VMA_PAD_START' ./include/linux; then
-  echo "目标内核未提供 VMA_PAD_START，使用 vma->vm_end 兼容 SUSFS OPEN_REDIRECT"
+  echo "В ядре нет VMA_PAD_START, использую vma->vm_end для SUSFS OPEN_REDIRECT"
   sed -i 's/VMA_PAD_START(vma)/vma->vm_end/g' "$SUSFS_PATCH"
 fi
 

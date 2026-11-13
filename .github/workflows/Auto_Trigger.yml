@@ -2,13 +2,13 @@ name: Auto Trigger on SukiSU Update
 
 on:
   schedule:
-    - cron: '0 0 */3 * *'  # 每两天执行一次
-  workflow_dispatch:     # 允许手动触发
+    - cron: '0 0 */3 * *'  # каждые 3 дня
+  workflow_dispatch:     # ручной запуск
 
 jobs:
   check-and-trigger:
     runs-on: ubuntu-24.04
-    # 如果要运行自动编译工作流，请手动添加/修改仓库所有者用户名
+    # Если нужно запускать автосборку, добавьте/измените имя владельца репозитория вручную
     if: contains(fromJSON('["zzh20188", "elysias123"]'), github.repository_owner)
     steps:
       - name: Checkout repository

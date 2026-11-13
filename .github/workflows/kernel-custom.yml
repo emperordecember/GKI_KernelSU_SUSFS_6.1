@@ -1,4 +1,4 @@
-name: Android 内核构建-自定义
+name: Сборка ядра Android — произвольная версия
 
 permissions:
   contents: write
@@ -7,9 +7,9 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      # ==================== 内核版本配置 ====================
+      # ==================== Настройки версии ядра ====================
       kernel_version:
-        description: "内核版本"
+        description: "Версия ядра"
         required: true
         type: choice
         options:
@@ -20,14 +20,14 @@ on:
           - "6.12"
         default: "5.10"
       os_patch_level:
-        description: "安全补丁级别 (如 2022-01, lts)"
+        description: "Уровень патчей безопасности (например 2022-01 или lts)"
         required: true
         type: string
         default: "2022-01"
 
-      # ==================== KernelSU 配置 ====================
+      # ==================== Настройки KernelSU ====================
       kernelsu_variant:
-        description: "KernelSU 变体"
+        description: "Вариант KernelSU"
         required: true
         type: choice
         options:
@@ -62,29 +62,29 @@ on:
           - "disabled"
         default: "disabled"
 
-      # ==================== 可选配置 ====================
+      # ==================== Необязательные настройки ====================
       version:
-        description: "自定义版本名 (可选)"
+        description: "Своё имя версии (необязательно)"
         required: false
         type: string
       build_time:
-        description: "自定义构建时间 (可选，N或留空=当前UTC)"
+        description: "Своё время сборки (необязательно; пусто = текущее UTC)"
         required: false
         type: string
         default: "Sun Dec 01 08:10:00 UTC 2024"
 
-      # ==================== 选项配置 ====================
+      # ==================== Настройки параметров ====================
       use_kpm:
-        description: "KPM 功能（enabled=KSU 自带，patched=注入 KernelPatch）"
+        description: "Поддержка KPM (enabled = встроенный KPM KernelSU, patched = внедрение KernelPatch)"
         required: true
         type: choice
-        default: "disabled (关闭)"
+        default: "disabled"
         options:
-          - "disabled (关闭)"
-          - "enabled (开启)"
-          - "patched (注入 KernelPatch)"
+          - "disabled"
+          - "enabled"
+          - "patched (inject KernelPatch)"
       droidspaces:
-        description: "Droidspaces 容器支持 (5.10~6.6: 槽位补丁, 6.12: 开/关)"
+        description: "Поддержка контейнеров Droidspaces (5.10–6.6: слот-патч, 6.12: вкл/выкл)"
         required: false
         type: choice
         options:
@@ -94,37 +94,37 @@ on:
           - "345"
         default: "off"
       artifact_upload_mode:
-        description: "构建产物上传模式"
+        description: "Режим загрузки артефактов сборки"
         required: true
         type: choice
         options:
-          - "仅上传 AnyKernel3.zip"
-          - "上传全部"
-        default: "仅上传 AnyKernel3.zip"
+          - "AnyKernel3.zip only"
+          - "Upload all"
+        default: "AnyKernel3.zip only"
       droidspaces_ntsync:
-        description: "启用 Droidspaces 容器 NTSync 支持（需启用 Droidspaces）"
+        description: "Включить NTSync в контейнерах Droidspaces (требуется Droidspaces)"
         required: false
         type: boolean
         default: false
 
-      # ==================== 功能开关 ====================
+      # ==================== Функциональные переключатели ====================
       use_zram:
-        description: "启用 ZRAM 增强算法"
+        description: "Включить улучшенный алгоритм ZRAM"
         required: true
         type: boolean
         default: false
       use_bbg:
-        description: "启用 BBG 防格机"
+        description: "Включить BBG (Baseband Guard, защита от кирпича)"
         required: true
         type: boolean
         default: false
       use_rekernel:
-        description: "启用 Re-Kernel 驱动"
+        description: "Включить драйвер Re-Kernel"
         required: false
         type: boolean
         default: false
       cve_2026_43499_patch:
-        description: "应用 CVE-2026-43499 rtmutex 修复链"
+        description: "Применить цепочку исправлений CVE-2026-43499 (rtmutex)"
         required: false
         type: boolean
         default: false
@@ -144,7 +144,7 @@ on:
         type: boolean
         default: false
       supp_op:
-        description: "启用一加 8E 支持"
+        description: "Включить поддержку OnePlus 8E"
         required: false
         type: boolean
         default: false
@@ -157,10 +157,10 @@ jobs:
       sub_level: ${{ steps.resolve.outputs.sub_level }}
       kernel_full: ${{ steps.resolve.outputs.kernel_full }}
     steps:
-      - name: 检出版本数据
+      - name: Получение данных версии
         uses: actions/checkout@v7
 
-      - name: 解析安全补丁级别
+      - name: Разбор уровня патчей безопасности
         id: resolve
         env:
           KERNEL_VERSION: ${{ inputs.kernel_version }}
@@ -183,13 +183,13 @@ jobs:
           }
           android_version = android_map.get(kernel_version)
           if android_version is None:
-              print(f"::error::未适配的内核版本: {kernel_version}")
+              print(f"::error::Неподдерживаемая версия ядра: {kernel_version}")
               sys.exit(1)
 
           data_path = Path("data") / android_version / f"{kernel_version}.json"
 
           if not data_path.exists():
-              print(f"::error::未找到版本数据: {data_path}")
+              print(f"::error::Данные версии не найдены: {data_path}")
               sys.exit(1)
 
           with data_path.open("r", encoding="utf-8") as f:
@@ -198,7 +198,7 @@ jobs:
           if os_patch_level == "lts":
               kernel_full = data.get("lts")
               if not kernel_full:
-                  print(f"::error::{android_version} / {kernel_version} 缺少 LTS 版本数据")
+                  print(f"::error::{android_version} / {kernel_version}: нет данных LTS")
                   sys.exit(1)
               sub_level = "X"
           else:
@@ -207,12 +207,12 @@ jobs:
                   None,
               )
               if matched is None:
-                  print(f"::error::未找到 {android_version} / {kernel_version} / {os_patch_level} 对应的版本数据")
+                  print(f"::error::Нет данных версии для {android_version} / {kernel_version} / {os_patch_level}")
                   sys.exit(1)
               kernel_full = matched.get("kernel", "")
               prefix = f"{kernel_version}."
               if not kernel_full.startswith(prefix):
-                  print(f"::error::版本数据异常: {kernel_full} 不属于 {kernel_version}")
+                  print(f"::error::Некорректные данные: {kernel_full} не относится к {kernel_version}")
                   sys.exit(1)
               sub_level = kernel_full.rsplit(".", 1)[-1]
 
@@ -221,7 +221,7 @@ jobs:
               output.write(f"sub_level={sub_level}\n")
               output.write(f"kernel_full={kernel_full}\n")
 
-          print(f"解析结果: {android_version} / {kernel_full}，子版本号: {sub_level}")
+          print(f"Результат: {android_version} / {kernel_full}, подверсия: {sub_level}")
           PY
 
   build-custom-kernel:
