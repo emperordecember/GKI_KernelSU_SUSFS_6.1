@@ -1073,7 +1073,23 @@ jobs:
               ;;
           esac
           echo "Applying NoMount kernel integration patch: $(basename "$PATCH")"
-          patch -p1 --fuzz=0 < "$PATCH" || { echo "::error::NoMount integration patch failed to apply"; exit 1; }
+          # SUSFS 2.4.0 inserts obj-$(CONFIG_KSU_SUSFS) += susfs.o into
+          # fs/Makefile between the obj-y block and CONFIG_BUFFER_HEAD, which
+          # breaks the NoMount hunk's context at fuzz=0 (seen on 6.12).
+          # Try fuzz 0, then 2/3 like other context-sensitive patches.
+          APPLIED=0
+          for FUZZ in 0 2 3; do
+            if patch -p1 --fuzz="$FUZZ" --dry-run < "$PATCH" >/dev/null 2>&1; then
+              echo "  applying with fuzz=$FUZZ"
+              patch -p1 --fuzz="$FUZZ" --no-backup-if-mismatch < "$PATCH"
+              APPLIED=1
+              break
+            fi
+          done
+          if [ "$APPLIED" -ne 1 ]; then
+            echo "::error::NoMount integration patch failed to apply"
+            exit 1
+          fi
 
           mkdir -p ./fs/nomount
           NOMOUNT_SRC="$GITHUB_WORKSPACE/.github/patches/nomount/src"
