@@ -156,9 +156,22 @@ if [[ "$ANDROID_VERSION" == "android15" && "$KERNEL_VERSION" == "6.6" ]]; then
 fi
 
 if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
-  if [[ "$CURRENT_SUB" -ge 58 ]]; then
-    echo "Temporarily adjusting Android 16 6.12 exec.c context"
+  # Older SUSFS patches expected the exec.c include block without dma-buf.h
+  # and their hunk #1 did not match 6.12.58+ trees. Remove the include only
+  # when the patch itself does not carry it in the fs/exec.c hunk; current
+  # upstream patches do carry it, and deleting it makes hunk #1 fail and
+  # leaves a stale fs/exec.c.rej during the build.
+  if [[ "$CURRENT_SUB" -ge 58 ]] \
+    && grep -qF '#include <linux/dma-buf.h>' fs/exec.c \
+    && ! awk '
+         /^diff --git a\/fs\/exec\.c b\/fs\/exec\.c$/ { in_exec = 1; next }
+         /^diff --git / { in_exec = 0 }
+         in_exec && /^[ +-]#include <linux\/dma-buf\.h>$/ { found = 1 }
+         END { exit(found ? 0 : 1) }
+       ' "$SUSFS_PATCH"; then
+    echo "Temporarily adjusting Android 16 6.12 exec.c context (patch has no dma-buf.h)"
     sed -i '/^#include <linux\/dma-buf.h>$/d' fs/exec.c
+    SUSFS_EXEC_DMABUF_SHIM=1
   fi
 fi
 
@@ -244,9 +257,16 @@ if [[ "$ANDROID_VERSION" == "android15" && "$KERNEL_VERSION" == "6.6" ]]; then
 fi
 
 if [[ "$ANDROID_VERSION" == "android16" && "$KERNEL_VERSION" == "6.12" ]]; then
-  if [[ "$CURRENT_SUB" -ge 58 ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/exec.c; then
+  if [[ "${SUSFS_EXEC_DMABUF_SHIM:-0}" == "1" ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/exec.c; then
     echo "Reverting Android 16 6.12 exec.c temporary adjustment"
-    sed -i '0,/^#include /s//#include <linux\/dma-buf.h>\n&/' fs/exec.c
+    # Restore the original position (after ksm.h), not at the top of the file:
+    # the old "first include" rewrite moved dma-buf.h above kernel.h and added
+    # an unrelated source diff to the built tree.
+    if grep -qF '#include <linux/ksm.h>' fs/exec.c; then
+      sed -i '/^#include <linux\/ksm.h>$/a #include <linux/dma-buf.h>' fs/exec.c
+    else
+      sed -i '0,/^#include /s//#include <linux\/dma-buf.h>\n&/' fs/exec.c
+    fi
   fi
 fi
 
